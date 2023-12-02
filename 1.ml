@@ -85,45 +85,34 @@ let substring_index (str : string) (substr : string) : int option =
     |> List.find_index (fun (i : int) -> substr = String.sub str i substr_len)
 
 let first_and_last_num_in_string (str : string) : (int * int) =
-  (* let f acc (s, n) = *)
-  (*   let index = substring_index str s in *)
-  (*   match index with *)
-  (*   | None -> acc *)
-  (*   | Some i -> (n, i) :: acc *)
-  (* in *)
-  (* let written_nums_indexes = *)
-  (*   List.fold_left f [] num_dict *)
-  (*   |> List.sort (fun (_,ia) (_, ib) -> compare ia ib) *)
-  (* in *)
+  let len = String.length str in
   let written_nums_indexes =
-    let len = (String.length str) in
-    iota len
-    |> List.map (fun i -> String.sub str i (len - i))
-    |> List.mapi (fun l i ->
-        let f acc (s, n) =
-          let index = substring_index str s in
-          match index with
-          | None -> acc
-          | Some i -> (n, i) :: acc
+    iota (pred len)
+    |> List.map (fun i -> (String.sub str i (len - i), i))
+    |> List.fold_left (fun acc (s, i) ->
+        let x =
+          num_dict
+          |> List.find_map (fun (s', n) ->
+              if String.starts_with ~prefix:s' s
+              then Some (n, i)
+              else None
+            )
         in
-        List.fold_left f [] num_dict
-        |> List.sort (fun (_,ia) (_, ib) -> compare ia ib)
-      )
-    |> List.flatten
+        match x with
+        | None -> acc
+        | Some (n, i) -> n :: acc
+      ) []
   in
-  let () = List.iter (fun (x,y) -> (Printf.printf "%d,%d " x y)) written_nums_indexes in
+  let () = List.iter (fun x -> (Printf.printf "%d " x)) written_nums_indexes in
   let () = assert(0 < List.length written_nums_indexes) in
-  let (first, _) = written_nums_indexes |> List.hd in
-  let (last, _) = written_nums_indexes |> List.rev |> List.hd in
+  let last = written_nums_indexes |> List.hd in
+  let first = written_nums_indexes |> List.rev |> List.hd in
   (first, last)
 
 let main_part_two (lines : string list)=
   let f acc s =
     let (first, last) = first_and_last_num_in_string s in
     let result = (first * 10) + last in
-    (*
-    let () = print_string s in
-    let () = print_newline () in *)
     let () = Printf.printf "%s %d" s result in
     let () = print_newline () in
     acc + result
