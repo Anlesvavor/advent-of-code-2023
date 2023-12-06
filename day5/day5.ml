@@ -27,7 +27,7 @@ let destructive_parse_str_num_list (str : string) : int list =
   |> List.filter_map (int_of_string_opt)
 
 module Range = struct
-  type t = (int * int) list
+  type t = { dest: int; src: int; len: int }
 
   let range (start : int) (len : int) : int list =
     let upper_bound = start + (pred len) in
@@ -39,41 +39,51 @@ module Range = struct
       else acc
     in
     range' [] start
-    |> List.rev
 
   let () =
     let actual = range 10 3 in
     let actual_str =
       actual |> List.fold_left (fun acc a -> acc^Printf.sprintf "%d; " a) ""
     in
-    assert_that ~message:actual_str [10; 11; 12] actual
+    assert_that ~message:actual_str [12; 11; 10] actual
 
   let from_string (str : string) : t =
     destructive_parse_str_num_list str
     |> function
-    | dest :: src :: len :: [] ->
-      let dest_range = range dest len in
-      let src_range = range src len in
-      List.combine src_range dest_range
+    | dest :: src :: len :: [] -> { dest; src; len }
     | _ -> failwith @@ Printf.sprintf "Bad format: %s" str
 
-  let assoc (src : int) (range : t) : int option = List.assoc_opt src range
+  let compute (t : t) : (int * int) list =
+    let dest_range = range t.dest t.len in
+    let src_range = range t.src t.len in
+    List.combine src_range dest_range
+
+  (* let assoc' (src : int) (t : t) : int option = *)
+  (*   List.assoc_opt src (compute t) *)
+
+  let assoc (x : int) (t : t) : int option =
+    let upper_bound = t.src + t.len in
+    let diff = x - t.src in
+    if t.src <= x && x < upper_bound
+    then (Some (t.dest + diff))
+    else None
+
 end
 
 module Category = struct
-  type t = Range.t
+  type t = Range.t list
 
   let from_string (str : string list) : t =
     str
     |> List.map (Range.from_string)
-    |> List.flatten
 
   let assoc (src : int) (category : t) : int =
     category
-    |> List.assoc_opt src
+    |> List.map (Range.assoc src)
+    |> List.find_opt (Option.is_some)
     |> function
-    | None -> src
-    | Some dest -> dest
+    | Some (Some dest) -> dest
+    | _ -> src
 
 end
 
@@ -110,8 +120,8 @@ let main (lines : string list) =
 
 
 let () =
-  (* let lines = In_channel.input_lines (In_channel.open_text  "day5.txt") in *)
-  let lines = In_channel.input_lines (In_channel.open_text "day5.example.txt") in
+  let lines = In_channel.input_lines (In_channel.open_text  "day5.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day5.example.txt") in *)
   let () = List.iter (Printf.printf "%s\n") lines in
   print_int (main lines)
 
