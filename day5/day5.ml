@@ -29,37 +29,11 @@ let destructive_parse_str_num_list (str : string) : int list =
 module Range = struct
   type t = { dest: int; src: int; len: int }
 
-  let range (start : int) (len : int) : int list =
-    let upper_bound = start + (pred len) in
-    let rec range' acc start =
-      if start <= upper_bound
-      then
-        let start' = succ start in
-        range' (start :: acc) start'
-      else acc
-    in
-    range' [] start
-
-  let () =
-    let actual = range 10 3 in
-    let actual_str =
-      actual |> List.fold_left (fun acc a -> acc^Printf.sprintf "%d; " a) ""
-    in
-    assert_that ~message:actual_str [12; 11; 10] actual
-
   let from_string (str : string) : t =
     destructive_parse_str_num_list str
     |> function
     | dest :: src :: len :: [] -> { dest; src; len }
     | _ -> failwith @@ Printf.sprintf "Bad format: %s" str
-
-  let compute (t : t) : (int * int) list =
-    let dest_range = range t.dest t.len in
-    let src_range = range t.src t.len in
-    List.combine src_range dest_range
-
-  (* let assoc' (src : int) (t : t) : int option = *)
-  (*   List.assoc_opt src (compute t) *)
 
   let assoc (x : int) (t : t) : int option =
     let upper_bound = t.src + t.len in
@@ -125,17 +99,60 @@ let () =
   let () = List.iter (Printf.printf "%s\n") lines in
   print_int (main lines)
 
-(* (\* part two *\) *)
+(* part two *)
 
-(* let main_part_two (lines : string list) : int = *)
-(*   lines *)
-(*   |> List.map (ScracthCard.from_string) *)
-(*   |> ScracthCard.redeem_copies *)
-(*   |> List.length *)
+let enpair list =
+  let rec aux acc list =
+    match list with
+    | a :: b :: tl -> aux ((a, b) :: acc) tl
+    | _ -> acc
+  in
+  aux [] list
 
-(* let () = *)
-(*   let lines = In_channel.input_lines (In_channel.open_text  "day4.txt") in *)
-(*   (\* let lines = In_channel.input_lines (In_channel.open_text "day4part2.example.txt") in *\) *)
-(*   let () = print_string "\n---\n" in *)
-(*   let () = List.iter (Printf.printf "%s\n") lines in *)
-(*   print_int (main_part_two lines) *)
+let main_part_two (lines : string list) : int =
+  let (seeds, categories) =
+    match lines with
+    | [] -> failwith "Bad format"
+    | seed_str :: body_str ->
+      let seeds = destructive_parse_str_num_list seed_str in
+      let seeds' =
+        seeds
+        |> enpair
+      in
+      let parse_categories (strs : string list) : Category.t list =
+        let rec aux acc curr list =
+          match list with
+          | [] -> acc
+          | s :: ss ->
+            if String.ends_with ~suffix:"map:" s
+            then aux (curr :: acc) [] ss
+            else aux acc (s :: curr) ss
+        in
+        strs
+        |> List.filter (fun s -> not(s = ""))
+        |> List.rev (* due to folding*)
+        |> aux [] []
+        |> List.map (Category.from_string)
+      in
+      (seeds', parse_categories body_str)
+  in
+  let almanac =
+    categories
+    |> (flip @@ List.fold_left (fun acc (cat : Category.t) -> Category.assoc acc cat))
+  in
+  seeds
+  |> List.map (fun (start, len) ->
+      Seq.ints start
+      |> Seq.take len
+      |> Seq.map (almanac)
+      |> Seq.fold_left (Int.min) Int.max_int
+    )
+  |> List.fold_left (Int.min) Int.max_int
+
+let () =
+  let lines = In_channel.input_lines (In_channel.open_text  "day5.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day5.example.txt") in *)
+  let () = print_string "\n---\n" in
+  let () = List.iter (Printf.printf "%s\n") lines in
+  let () = print_int (main_part_two lines) in
+  print_newline ()
