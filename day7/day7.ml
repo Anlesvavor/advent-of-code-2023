@@ -46,6 +46,22 @@ module Hand = struct
 
   let labels = ['2'; '3'; '4'; '5'; '6'; '7'; '8'; '9'; 'T'; 'J'; 'Q'; 'K'; 'A']
 
+  let to_string (t : t) : string =
+    let cards =
+      List.fold_left (fun acc c -> (String.make 1 (List.nth labels c)) ^ acc) "" t.cards
+    in
+    let handt =
+      match t.handt with
+      | FiveOf -> "Five"
+      | FourOf -> "Four"
+      | Full -> "Full"
+      | ThreeOf -> "Three"
+      | TwoPair -> "Two Pair"
+      | OnePair -> "One Pair"
+      | High -> "High"
+    in
+    Printf.sprintf "%s %s %s" cards (string_of_int t.bid) handt
+
   let from_string (str : string) : t =
     let read_cards str =
       str
@@ -66,47 +82,37 @@ module Hand = struct
       |> List.sort compare
       |> group_items (fun a b ->a=b)
       |> List.sort (fun a b -> compare (List.length b) (List.length a))
+      (* |> List.map (fun x -> *)
+      (*     let () = Printf.printf " "  in *)
+      (*     x |> List.map (fun y -> *)
+      (*         let () = Printf.printf "%d;" (y) in *)
+      (*         y *)
+      (*       ) *)
+      (*   ) *)
+      (* |> (fun x -> let () = print_newline () in x) *)
       |> function
       | [a] when (List.length a) = 5 -> FiveOf
-      | [a; _] when (List.length a) = 4 -> FourOf
-      | [a; b] when ((List.length a) = 3) && ((List.length b) = 2) -> Full
-      | [a; _] when ((List.length a) = 3) -> ThreeOf
-      | [a; b; _] when ((List.length a) = 2) && ((List.length b) = 2) -> TwoPair
-      | [a; _] when ((List.length a) = 2) -> OnePair
+      | a :: b :: _ when (List.length a) = 4 -> FourOf
+      | a :: b :: _ when ((List.length a) = 3) && ((List.length b) = 2) -> Full
+      | a :: b :: _ when ((List.length a) = 3) -> ThreeOf
+      | a :: b :: c :: _ when ((List.length a) = 2) && ((List.length b) = 2) -> TwoPair
+      | a :: b :: _ when ((List.length a) = 2) -> OnePair
       | _ -> High
     in
     { cards; bid; handt }
 
   let compare (a : t) (b : t) : int =
+    (* let () = print_endline @@ to_string a in *)
     let handt_result = compare a.handt b.handt in
     if handt_result <> 0
     then handt_result
     else
-      List.fold_left2 (fun acc a b ->
+      List.fold_right2 (fun a b acc ->
           if acc <> 0
           then acc
           else compare a b
-        ) 0 a.cards b.cards
+        ) a.cards b.cards 0
 
-  let to_string (t : t) : string =
-    let cards =
-      List.fold_left (fun acc c -> (String.make 1 (List.nth labels c)) ^ acc) "" t.cards
-    in
-    let handt =
-      match t.handt with
-      | FiveOf -> "Five"
-      | FourOf -> "Four"
-      | Full -> "Full"
-      | ThreeOf -> "Three"
-      | TwoPair -> "Two Pair"
-      | OnePair -> "One Pair"
-      | High -> "High"
-    in
-    Printf.sprintf "%s %s %s" cards (string_of_int t.bid) handt
-
-  (* | [a] when (List.length a) = 5 -> FiveOf *)
-  (* | [a, b] when (List.length a) = 4 -> FourOf *)
-  (* | [a, b, c] *)
 end
 
 let main lines =
@@ -121,8 +127,8 @@ let main lines =
   |> List.fold_left (+) 0
 
 let () =
-  (* let lines = In_channel.input_lines (In_channel.open_text  "day7.txt") in *)
-  let lines = In_channel.input_lines (In_channel.open_text "day7.example.txt") in
+  let lines = In_channel.input_lines (In_channel.open_text  "day7.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day7.example.txt") in *)
   let () = List.iter (Printf.printf "%s\n") lines in
   print_int (main lines)
 
