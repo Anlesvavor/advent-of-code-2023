@@ -54,7 +54,10 @@ let pset (n : int) (list : 'a list) : ('a list list) =
         (List.fold_left (fun acc x -> acc @ (List.map (fun y -> y :: x) list)) [] list')
     else list'
   in
-  aux n (list |> List.map (fun x -> [x]))
+  match list with
+  | [] -> [[]]
+  | a -> aux n (a |> List.map (fun x -> [x]))
+
 
 module Hand = struct
   type handtype = High | OnePair | TwoPair | ThreeOf | Full | FourOf | FiveOf
@@ -181,6 +184,20 @@ module Hand2 = struct
     in
     Printf.sprintf "%s %s %s" cards (string_of_int t.bid) handt
 
+  let compute_handt cards =
+    cards
+    |> List.sort compare
+    |> group_items (fun a b -> a = b)
+    |> List.sort (fun a b -> compare (List.length b) (List.length a))
+    |> function
+    | [a] when (List.length a) = 5 -> FiveOf
+    | a :: b :: _ when (List.length a) = 4 -> FourOf
+    | a :: b :: _ when ((List.length a) = 3) && ((List.length b) = 2) -> Full
+    | a :: b :: _ when ((List.length a) = 3) -> ThreeOf
+    | a :: b :: c :: _ when ((List.length a) = 2) && ((List.length b) = 2) -> TwoPair
+    | a :: b :: _ when ((List.length a) = 2) -> OnePair
+    | _ -> High
+
   let from_string (str : string) : t =
     let read_cards str =
       str
@@ -196,23 +213,10 @@ module Hand2 = struct
       | cards_str :: bid_str :: [] -> read_cards cards_str, int_of_string bid_str
       | _ -> failwith @@ Printf.sprintf "Bad format: %s" str
     in
-    let compute_handt cards : handtype =
-      cards
-      |> List.sort compare
-      |> group_items (fun a b -> a = b)
-      |> List.sort (fun a b -> compare (List.length b) (List.length a))
-      |> function
-      | [a] when (List.length a) = 5 -> FiveOf
-      | a :: b :: _ when (List.length a) = 4 -> FourOf
-      | a :: b :: _ when ((List.length a) = 3) && ((List.length b) = 2) -> Full
-      | a :: b :: _ when ((List.length a) = 3) -> ThreeOf
-      | a :: b :: c :: _ when ((List.length a) = 2) && ((List.length b) = 2) -> TwoPair
-      | a :: b :: _ when ((List.length a) = 2) -> OnePair
-      | _ -> High
-    in
     let handt =
-      if List.exists ((<>) 0) cards
+      if List.for_all ((<>) 0) cards
       then compute_handt cards
+      else if cards = [0; 0; 0; 0; 0] then FiveOf (* No regrets :))))))) *)
       else
         let jokers, cards =
           cards
@@ -224,10 +228,9 @@ module Hand2 = struct
         |> List.map (List.append cards)
         |> List.map (compute_handt)
         |> List.fold_left (fun acc h ->
-            compare acc h
-            |> function
-            | 0 | -1 -> h
-            | 1 -> acc
+            if acc > h
+            then acc
+            else h
           ) High
     in
     { cards; bid; handt }
