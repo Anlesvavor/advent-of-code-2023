@@ -55,7 +55,7 @@ let main lines =
     | _ -> failwith "Bad format"
   in
   let count = ref 0 in
-  let current = ref (List.hd dessert_map) in
+  let current = ref (List.find (fun (label, _) -> label = "AAA") dessert_map) in
   let steps =
     steps
     |> String.to_seq
