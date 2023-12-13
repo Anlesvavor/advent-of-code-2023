@@ -19,6 +19,17 @@ let is_alpha c = ('A' <= c && c <= 'z') || ('0' <= c && c <= '9')
 let last_char str =
   str |> String.to_seq |> List.of_seq |> List.rev |> List.hd
 
+let rec gcd (a : int) (b : int) : int =
+  match a, b with
+  | 0, b -> b
+  | a, 0 -> a
+  | a, b ->
+    let r = a mod b in
+    gcd b r
+
+let lcm (a : int) (b : int) : int =
+  (a * b) / (gcd a b)
+
 module DessertMap = struct
   type elt = (string * (string * string))
   type t = elt list
@@ -41,9 +52,6 @@ module DessertMap = struct
     let (k,(l,r)) = t in
     Printf.sprintf "%s=%s,%s" k l r
 
-  (* let seq_of_dir_to_dessert_path (t : t) (seq : (`Left | `Right) Seq.t) : t = *)
-  (*   match seq () with *)
-  (*   | Seq.Cons ((label, ), next) *)
 end
 
 let rec map_with_previous f prev (seq : 'a Seq.t) () =
@@ -59,15 +67,6 @@ let main lines =
     | steps :: "" :: lines -> steps, (DessertMap.from_lines lines)
     | _ -> failwith "Bad format"
   in
-  (* let count = ref 0 in *)
-  (* let current = ref (List.find (fun (label, _) -> label = "AAA") dessert_map) in *)
-  (* let steps = *)
-  (*   steps *)
-  (*   |> String.to_seq *)
-  (*   |> Seq.map (function 'L' -> `Left | 'R' -> `Right | _ -> failwith "bad format") *)
-  (*   |> Array.of_seq *)
-  (* in *)
-  (* let () = dessert_map |> List.iter (fun x -> print_endline (DessertMap.to_string x)) in *)
   steps
   |> String.to_seq
   |> Seq.map (function 'L' -> `Left | 'R' -> `Right | _ -> failwith "bad format")
@@ -78,24 +77,8 @@ let main lines =
       | `Right -> (right, (List.assoc right dessert_map)), (right, (List.assoc right dessert_map))
     ) (List.find (fun (label, _) -> label = "ZZZ") dessert_map)
   |> Seq.take_while (fun (_, (label, _)) -> label <> "ZZZ")
-  (* |> Seq.map (fun (x,p) -> let () = Printf.printf "%s ; %s\n" (DessertMap.to_string x) (DessertMap.to_string p) in x ) *)
   |> Seq.length
   |> succ
-(* let next_step = ref (Array.get steps 0) in *)
-(* let ddone = ref true in *)
-(* while !ddone do *)
-(*   print_endline (DessertMap.to_string !current); *)
-(*   let label, (left, right) = !current in *)
-(*   ddone := if label = "ZZZ" then false else true; *)
-(*   print_int !count; *)
-(*   print_newline (); *)
-(*   next_step := Array.get steps (!count mod (Array.length steps)); *)
-(*   count := !count + 1; *)
-(*   current := match !next_step with *)
-(*     | `Left -> (left, (List.assoc left dessert_map)) *)
-(*     | `Right -> (right, (List.assoc right dessert_map)) *)
-(* done; *)
-(* !count *)
 
 let () =
   let lines = In_channel.input_lines (In_channel.open_text  "day8.txt") in
@@ -126,37 +109,32 @@ let main_part_2 lines =
   ghost_map_start |> List.iter (fun x ->
       Printf.printf "start->%s\n" (DessertMap.to_string x)
     );
-  ghost_map_end |> List.iter (fun x ->
-      Printf.printf "end->%s\n" (DessertMap.to_string x)
-    );
-  steps
-  |> String.to_seq
-  |> Seq.map (function 'L' -> `Left | 'R' -> `Right | _ -> failwith "bad format")
-  |> Seq.cycle
-  |> map_with_previous (fun prevs x ->
-      let a = prevs |> List.map (fun (label, (left, right)) ->
-          (* let () = Printf.printf ">%s\n" (DessertMap.to_string (label, (left, right)))  in *)
-          match x with
-          | `Left -> (left, (List.assoc left dessert_map))
-          | `Right -> (right, (List.assoc right dessert_map))
-        )
-      in
-      a, a
-    ) (ghost_map_start)
-  |> Seq.map (snd)
-  (* |> Seq.map (fun xs -> *)
-  (*     print_endline "---\n"; *)
-  (*     xs *)
-  (*     |> List.map (fun x-> let () = Printf.printf "%s\n" (DessertMap.to_string x)  in x )) *)
-  (* |> Seq.take 10 *)
-  |> Seq.take_while (fun xs ->
-      xs
-      |> List.exists (fun x -> not @@ List.mem x ghost_map_end))
-  |> Seq.length
-  |> succ
+  let path_lengths =
+    ghost_map_start
+    |> List.map (fun m ->
+        steps
+        |> String.to_seq
+        |> Seq.map (function 'L' -> `Left | 'R' -> `Right | _ -> failwith "bad format")
+        |> Seq.cycle
+        |> map_with_previous (fun (label, (left, right)) x ->
+            let a =
+              match x with
+              | `Left -> (left, (List.assoc left dessert_map))
+              | `Right -> (right, (List.assoc right dessert_map))
+            in
+            a, a
+          ) (m)
+        |> Seq.map (snd)
+        |> Seq.take_while (fun x -> not @@ List.mem x ghost_map_end)
+        |> Seq.length
+        |> succ
+      )
+  in
+  path_lengths
+  |> List.fold_left (lcm) (List.hd path_lengths)
 
 let () =
-  (* let lines = In_channel.input_lines (In_channel.open_text  "day8.txt") in *)
-  let lines = In_channel.input_lines (In_channel.open_text "day8part2.example.txt") in
+  let lines = In_channel.input_lines (In_channel.open_text  "day8.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day8part2.example.txt") in *)
   let () = List.iter (Printf.printf "%s\n") lines in
   print_int (main_part_2 lines)
