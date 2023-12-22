@@ -14,6 +14,23 @@ let ( |*> ) a f = Option.bind a f
 
 let also e a = let () = e a in a
 
+let area (t : ((int * int) list)) =
+  let rec aux acc =
+    function
+    | [] -> acc
+    | [_] -> acc
+    | a :: (b :: _ as tl) ->
+      let (ax, ay) = a in
+      let (bx, by) = b in
+      aux (acc + ((ax*by) - (bx*ay))) tl
+  in
+  let h = List.hd t in
+  div' (aux 0 (t@[h])) 2
+
+(* area [0,0; 1,0; 1,1; 0,1];; *)
+
+let picks_theorem_for_inner boundry_len area = area + 1 - (boundry_len / 2)
+
 module Pipeline = struct
   type state = Cycles | Dies
   type orientation = North | East | South | West
@@ -126,9 +143,19 @@ module Pipeline = struct
         | Some (_matched_ornt, next_ornt) -> Some(next_ornt, x)
         | None -> None
       )
-    |> List.map (fun x -> chain [] x)
+    |> List.map (fun x -> chain [(snd x)] x)
+
+  (* Not checking if it's enclosed or not *)
+  let area (t : t) =
+    t
+    |> List.map (fst)
+    |> area
+    |> int_of_float
+    |> abs
+    |> picks_theorem_for_inner (List.length t)
 
 end
+
 
 let main lines =
   let pipemap =
@@ -148,8 +175,34 @@ let main lines =
 
 
 let () =
-  let lines = In_channel.input_lines (In_channel.open_text  "day10.txt") in
-  (* let lines = In_channel.input_lines (In_channel.open_text "day10.example.txt") in *)
+  (* let lines = In_channel.input_lines (In_channel.open_text  "day10.txt") in *)
+  let lines = In_channel.input_lines (In_channel.open_text "day10.example.txt") in
   let () = List.iter (Printf.printf "%s\n") lines in
   print_int (main lines)
+(* main lines |> List.iter (print_endline) *)
+
+
+let main_part_2 lines =
+  let pipemap =
+    lines
+    |> Pipeline.from_lines
+  in
+  let starting_pipe =
+    pipemap
+    |> Pipeline.get_start
+  in
+  let pipelines = Pipeline.construct starting_pipe pipemap in
+  pipelines
+  |> also (fun x -> x |> List.iter (fun y -> y |>List.length |> string_of_int |> print_endline))
+  (* |> also (List.iter (fun x -> x |> Pipeline.to_strings |> print_string)) *)
+  |> List.hd
+  |> Pipeline.area
+
+
+let () =
+  let lines = In_channel.input_lines (In_channel.open_text  "day10.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day10part2.example.txt") in *)
+  (* let lines = In_channel.input_lines (In_channel.open_text "day10part3.example.txt") in *)
+  let () = List.iter (Printf.printf "%s\n") lines in
+  print_int (main_part_2 lines)
 (* main lines |> List.iter (print_endline) *)
