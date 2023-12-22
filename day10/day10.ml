@@ -1,47 +1,55 @@
+let div' a b = (float_of_int a) /. (float_of_int b)
+
 let list_of_string str =
   str |> String.to_seq |> List.of_seq
 
 let take_if (predicate : 'a -> bool) (a : 'a) : 'a option=
   if predicate a then Some a else None
 
-
 let take_if_opt (predicate : 'a -> bool) (a : 'a option) : 'a option=
   Option.bind a (fun a -> if predicate a then Some a else None)
 
+(* Pipe Bind *)
+let ( |*> ) a f = Option.bind a f
+
+let also e a = let () = e a in a
+
 module Pipeline = struct
   type state = Cycles | Dies
-  type pipe = Ns | Ew | Ne | Nw | Sw | Se | G | S
-  type orientation = North | East | South | West | Start
-  type elt = ((int * int) * pipe)
+  type orientation = North | East | South | West
+  type endpoint = (orientation * orientation)
+  type piece = Pipe of endpoint | Ground | Start
+  type elt = ((int * int) * piece)
   type t = elt list
 
   let from_char (row : int) (col : int) (c : char) : elt =
     let pipe = match c with
-      | '|' -> Ns
-      | '-' -> Ew
-      | 'L' -> Ne
-      | 'J' -> Nw
-      | '7' -> Sw
-      | 'F' -> Se
-      | '.' -> G
-      | 'S' -> S
+      | '|' -> Pipe (North, South)
+      | '-' -> Pipe (East, West)
+      | 'L' -> Pipe (North, East)
+      | 'J' -> Pipe (North, West)
+      | '7' -> Pipe (South, West)
+      | 'F' -> Pipe (South, East)
+      | '.' -> Ground
+      | 'S' -> Start
       | _ -> failwith "Bad data!"
     in
     (row, col), pipe
 
   let to_string (elt : elt) : string =
-    let ((x, y), pipe) = elt in
-    let pipe = match snd elt with
-      | Ns -> '|'
-      | Ew -> '-'
-      | Ne -> 'L'
-      | Nw -> 'J'
-      | Sw -> '7'
-      | Se -> 'F'
-      | G -> '.'
-      | S -> 'S'
+    let ((x, y), _) = elt in
+    let piece = match snd elt with
+      | Pipe (North, South) | Pipe (South, North) -> '|'
+      | Pipe (East, West) | Pipe (West, East) -> '-'
+      | Pipe (North, East) | Pipe (East, North) -> 'L'
+      | Pipe (North, West) | Pipe (West, North) -> 'J'
+      | Pipe (South, West) | Pipe (West, South) -> '7'
+      | Pipe (South, East) | Pipe (East, South) -> 'F'
+      | Ground -> '.'
+      | Start -> 'S'
+      | _ -> failwith "Bad format"
     in
-    Printf.sprintf "(%d,%d) %c" x y pipe
+    Printf.sprintf "(%d,%d) %c" x y piece
 
   let to_strings (t : t) : string =
     t |> List.fold_left (fun acc s -> acc ^ (Printf.sprintf "%s; " @@ to_string s)) ""
@@ -53,83 +61,72 @@ module Pipeline = struct
     lines |> List.mapi (from_string) |> List.flatten
 
   let get_start (t : t) : elt =
-    t |> List.find (fun (_, p) -> p = S)
+    t |> List.find (fun (_, p) -> p = Start)
 
-  let neighboors (anchor : elt) (pipemap : t) : (elt option * elt option * elt option * elt option) =
+  let neighboors (anchor : elt) (pipemap : t) : (elt * orientation) list =
     let find coord = pipemap |> List.find_opt (fun (coord', _) -> coord' = coord) in
-    let ((x, y), pipe) = anchor in
+    let ((x, y), piece) = anchor in
     let top = (x, y - 1) |> find in
     let right = (x + 1, y) |> find in
     let bottom = (x, y + 1) |> find in
     let left = (x - 1, y) |> find in
-    (top, right, bottom, left)
+    [top, North; right, East; bottom, South; left, West]
+    |> List.filter_map (fun (a, b) ->
+        match a with
+        | Some a -> Some (a, b)
+        | None -> None
+      )
 
-  let can_be (valid_pipes : pipe list) (elt : elt) : bool =
-    let (_, pipe) = elt in
-    List.mem pipe valid_pipes
-
-  let can_be_north = can_be [Ns; Sw; Se]
-  let can_be_east = can_be [Ew; Nw; Sw]
-  let can_be_south = can_be [Ns; Nw; Ne]
-  let can_be_west = can_be [Ew; Ne; Se]
-
-  let can_connect (source : elt) (destination : elt) : bool =
-    let (_, source_pipe) = source in
-    let (_, destination_pipe) = destination in
-    match destination_pipe with
-    | Ns -> (match source_pipe with Ew -> false | _ -> true)
-    | Ew -> (match source_pipe with Ns -> false | _ -> true)
-    | Ne -> (match source_pipe with Ne -> false | _ -> true)
-    | Nw -> (match source_pipe with Nw -> false | _ -> true)
-    | Se -> (match source_pipe with Se -> false | _ -> true)
-    | Sw -> (match source_pipe with Sw -> false | _ -> true)
-    | G -> false
-    | S -> true
+  let reflection =
+    function
+    | North -> South
+    | East -> West
+    | South -> North
+    | West -> East
 
   let construct (anchor : elt) (pipemap : t) =
-    let aux
-        (coming_from : orientation)
-        (anchor : elt)
-      : ((elt * orientation) list, elt * orientation) Either.t
-      =
-      let criteria (dir : elt option) f g new_or =
-        dir
-        |> take_if_opt (f)
-        |> take_if_opt (g)
-        |> take_if_opt (can_connect anchor)
-        |> Option.map (fun x -> (x, new_or))
-      in
-      let (top, right, bottom, left) = neighboors anchor pipemap in
-      let top' = criteria top can_be_north (fun _ -> coming_from <> North) South in
-      let right' = criteria right can_be_east (fun _ -> coming_from <> East) West in
-      let bottom' = criteria bottom can_be_south (fun _ -> coming_from <> South) North in
-      let left' = criteria left (can_be_west) (fun _ -> coming_from <> West) East in
-      let valid = [top'; right'; bottom'; left'] in
-      let ground' = ((-1, -1), G), North in
-      match coming_from with
-      | Start -> valid |> List.filter_map (fun x -> x) |> Either.left
-      | _ -> valid |> List.find_opt (Option.is_some) |> Option.join |> Option.value ~default:ground' |> Either.right
+    let can_connect_on (a_orientation : orientation) (b : elt) : ((orientation * orientation) option) =
+      let _, bpiece = b in
+      match bpiece with
+      | Ground -> None
+      | Start -> Some (a_orientation, a_orientation)
+      | Pipe (bor1, bor2) ->
+        if (reflection bor1) = a_orientation
+        then Some (reflection bor1, bor2)
+        else if (reflection bor2) = a_orientation
+        then Some (reflection bor2, bor1)
+        else None
     in
-    let rec recc acc coming_from hd =
-      (* function *)
-      (* | [] -> acc *)
-      (* | hd :: tl -> begin *)
-      let ((_, pipe) as result, coming_from') = match aux coming_from hd with
-        | Right a -> a
-        | _ -> failwith "Shouldnt happen"
+    let rec chain acc (cur : orientation * elt)  =
+      let (next_orientation, anchor) = cur in
+      let neighboors = neighboors anchor pipemap in
+      let next_anchor =
+        let candidate_anchor =
+          neighboors |> List.find_map (fun (x, ornt) ->
+              if next_orientation = ornt
+              then Some x
+              else None
+            )
+        in
+        candidate_anchor
+        |*> (can_connect_on next_orientation)
+        |*> (fun x ->
+            match candidate_anchor with
+            | Some a -> Some (a, x)
+            | None -> None
+          )
       in
-      match pipe with
-      | G | S -> acc
-      | _ -> recc (result :: acc) coming_from' result
-      (* end *)
+      match next_anchor with
+      | Some (anchor, (_matched_ornt, next_ornt)) -> chain (anchor::acc) (next_ornt, anchor)
+      | None -> acc |> List.rev
     in
-    aux Start anchor
-    |> function
-    | Left a ->
-      a |> List.map (fun (anchor', orientation) ->
-          recc [] orientation anchor'
-        )
-    | _ -> failwith "Shouldnt happen; This is the first iteration"
+    neighboors anchor pipemap
+    |> List.filter_map (fun (x, ornt) ->
+        match can_connect_on ornt x with
+        | Some (_matched_ornt, next_ornt) -> Some(next_ornt, x)
+        | None -> None
+      )
+    |> List.map (fun x -> chain [] x)
 
 end
 
@@ -143,18 +140,16 @@ let main lines =
     |> Pipeline.get_start
   in
   let pipelines = Pipeline.construct starting_pipe pipemap in
-  (* |> List.map (Pipeline.to_strings) *)
   pipelines
-  |> List.map (fun x ->
-      x
-      |>
-      Pipeline.to_strings
-    )
+  |> also (List.iter (fun x -> x |> Pipeline.to_strings |> print_string))
+  |> List.hd
+  |> List.length
+  |> (fun x -> int_of_float @@ ceil (div' x 2))
 
 
 let () =
-  (* let lines = In_channel.input_lines (In_channel.open_text  "day10.txt") in *)
-  let lines = In_channel.input_lines (In_channel.open_text "day10.example.txt") in
+  let lines = In_channel.input_lines (In_channel.open_text  "day10.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day10.example.txt") in *)
   let () = List.iter (Printf.printf "%s\n") lines in
-  (* print_string (main lines) *)
-  main lines |> List.iter (print_endline)
+  print_int (main lines)
+(* main lines |> List.iter (print_endline) *)
