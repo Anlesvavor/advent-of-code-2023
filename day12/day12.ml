@@ -33,6 +33,23 @@ let group_items (pred : 'a -> 'a -> bool) (list : 'a list) : 'a list list =
   List.rev (aux [] [] list)
   |> List.map (List.rev)
 
+let run_lenght_encode list =
+  let rec aux acc =
+    function
+    | [] -> acc
+    | x :: xs ->
+      match acc with
+      | [] -> aux [(x, 1)] xs
+      | (hd_val, hd_count) as hd :: tl ->
+        let acc' =
+          if hd_val = x
+          then (hd_val, (succ hd_count)) :: tl
+          else (x, 1) :: hd :: tl
+        in
+        aux acc' xs
+  in
+  aux [] list |> List.rev
+
 module Report = struct
   type c = Op | NoOp | Ukn
   type graph = c list
@@ -77,11 +94,11 @@ module Report = struct
   let is_valid (elt : elt) : bool =
     let graph, hints = elt in
     graph
-    |> group_items (=)
-    |> List.map (List.length)
+    |> run_lenght_encode
+    |> List.filter_map (fun (c, count) -> if c = NoOp then (Some count) else None)
     |> (=) hints
 
-  let f (elt : elt) =
+  let combinations_of (elt : elt) : t =
     let graph, hints = elt in
     let rec aux acc list =
       match list with
@@ -101,22 +118,24 @@ module Report = struct
       | hd :: tl -> aux (acc |> List.map (fun xs -> hd :: xs)) tl
     in
     aux [[]] graph
-    |> List.map (List.rev)
+    |> List.map (fun x -> (List.rev x, hints))
 
 end
 
 (*  "???.### 1,1,3" |> Report.from_string |> Report.f;; *)
 
 let main lines =
-  let report =
+  let reports =
     lines
     |> Report.from_lines
   in
-  stars
-  (* |> also (List.iter (fun (a,b)-> Printf.printf "%d,%d; " a b )) *)
-  (* |> also (fun _ -> print_newline() ) *)
-  |> Report.expand_field
-(* |> also (List.iter (fun (a,b)-> Printf.printf "%d,%d; " a b )) *)
+  reports
+  |> List.map (fun x ->
+      Report.combinations_of x
+      |> List.filter (Report.is_valid)
+      |> List.length
+    )
+  |> List.fold_left (+) 0
 
 let () =
   let lines = In_channel.input_lines (In_channel.open_text  "day12.txt") in
