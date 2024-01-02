@@ -6,6 +6,70 @@ let iota (n : int) : int list =
   in
   iota' n []
 
+let do_times (n : int) f x =
+  let rec aux (n : int) acc =
+    if n = 0
+    then acc
+    else aux (pred n) (f acc)
+  in
+  aux n x
+
+module Memoed = struct
+  type 'a t = Novel of 'a | Old of 'a
+
+  let novel a = (Novel a)
+
+  let old a = (Old a)
+
+  let memo f =
+    let h = Hashtbl.create 11 in
+    fun x ->
+      try old (Hashtbl.find h x)
+      with Not_found ->
+        let y = f x in
+        Hashtbl.add h x y;
+        novel y
+end
+
+let do_times_until_bored (n : int) f x =
+  let f' = Memoed.memo f in
+  let rec aux (n : int) acc =
+    if n = 0
+    then acc, 0
+    else
+      match f' acc with
+      | Memoed.Old acc' ->
+        let () = Printf.printf "old: c:%d\n" n in
+        acc', n
+      | Memoed.Novel acc' ->
+        let () = Printf.printf "nvel: c:%d\n" n in
+        aux (pred n) acc'
+  in
+  let result, remained_n = aux n x in
+  result, n - remained_n
+;; (* For some reason this is needed, weird *)
+
+let do_times_until_loop_with_loop (n : int) f x =
+  (* Get to loop start *)
+  let x', loop_n_start = do_times_until_bored n f x in
+  let f' = Memoed.memo f in
+  let rec aux (n : int) acc cur =
+    if n = 0
+    then cur, n, acc
+    else
+      match f' cur with
+      | Memoed.Old next ->
+        let () = Printf.printf "old: c:%d\n" n in
+        next, n, acc
+      | Memoed.Novel next ->
+        let () = Printf.printf "nvel: c:%d\n" n in
+        aux (pred n) (cur :: acc) next
+  in
+  aux n [] x
+;;
+
+do_times_until_bored Int.max_int (fun x -> x mod 10) 0
+
 let list_of_string str =
   str |> String.to_seq |> List.of_seq
 
@@ -34,7 +98,7 @@ let split_preserving_on (item : 'a) (list : 'a list) : 'a list list =
     | [] -> cur :: acc
     | hd :: tl ->
       if hd = item
-      then aux ((hd :: cur) :: acc) [] tl
+      then aux ([hd] :: cur :: acc) [] tl
       else aux acc (hd :: cur) tl
   in
   aux [] [] list
@@ -82,3 +146,70 @@ let () =
   print_int (main lines)
 (* main lines |> List.iter (print_endline) *)
 
+let score (boulders : char list) : int =
+  let score_list = boulders |> List.length |> iota |> List.tl |> List.rev in
+  let scored_boulders = List.combine boulders score_list in
+  scored_boulders
+  |> List.filter_map (function
+      | 'O', s -> Some s
+      | _, _ -> None
+    )
+  |> List.fold_left (+) 0
+
+type ord = L | R
+
+let roll_list (ord : ord) (list : char list)  =
+  let ordering_f =
+    function
+    | L -> begin
+        let f a b = match a, b with
+          | 'O', _ -> -1
+          | _, 'O' -> 1
+          | _, _ -> 0
+        in
+        f
+      end
+    | R -> begin
+        let f a b = match a, b with
+          | 'O', _ -> 1
+          | _, 'O' -> -1
+          | _, _ -> 0
+        in
+        f
+      end
+  in
+  let sections = list |> split_preserving_on '#' in
+  sections
+  |> List.map (List.sort (ordering_f ord))
+  |> List.concat
+
+let main_part_2 (lines : string list) =
+  let cycle lines =
+    lines
+    |> transpose
+    |> List.map (roll_list L)
+    |> transpose
+    |> List.map (roll_list L)
+    |> transpose
+    |> List.map (roll_list R)
+    |> transpose
+    |> List.map (roll_list R)
+  in
+  let charss = (lines |> List.map string_to_list) in
+  let result, n, loop = do_times_until_loop_with_loop 10000 cycle charss in
+  result
+  (* do_times_until_bored 1000000000 cycle charss *)
+  (* |> transpose *)
+  (* |> List.map (roll_list L) *)
+  |> List.map score
+  |> List.fold_left (+) 0
+
+let () =
+  (* let lines = In_channel.input_lines (In_channel.open_text  "day14.txt") in *)
+  let lines = In_channel.input_lines (In_channel.open_text "day14.example.txt") in
+  let () = List.iter (Printf.printf "%s\n") lines in
+  let () = print_newline () in
+  let result = main_part_2 lines in
+  print_int result
+(* print_int (main_part_2 lines) *)
+(* main lines |> List.iter (print_endline) *)
