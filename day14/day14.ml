@@ -55,17 +55,18 @@ let do_times_until_loop_with_loop (n : int) f x =
   let f' = Memoed.memo f in
   let rec aux (n : int) acc cur =
     if n = 0
-    then cur, n, acc
+    then cur, acc
     else
       match f' cur with
       | Memoed.Old next ->
         let () = Printf.printf "old: c:%d\n" n in
-        next, n, acc
+        next, cur :: acc
       | Memoed.Novel next ->
         let () = Printf.printf "nvel: c:%d\n" n in
         aux (pred n) (cur :: acc) next
   in
-  aux n [] x
+  let result, loop = aux n [] x' in
+  result, loop_n_start, loop
 ;;
 
 do_times_until_bored Int.max_int (fun x -> x mod 10) 0
@@ -183,26 +184,43 @@ let roll_list (ord : ord) (list : char list)  =
   |> List.map (List.sort (ordering_f ord))
   |> List.concat
 
+let cycle lines =
+  lines
+  |> transpose
+  |> List.map (roll_list L)
+  |> transpose
+  |> List.map (roll_list L)
+  |> transpose
+  |> List.map (roll_list R)
+  |> transpose
+  |> List.map (roll_list R)
+
+let print_board (css : char list list) =
+  css |> List.iter (fun cs ->
+      cs |> List.iter (print_char);
+      print_newline ()
+    )
+
 let main_part_2 (lines : string list) =
-  let cycle lines =
-    lines
-    |> transpose
-    |> List.map (roll_list L)
-    |> transpose
-    |> List.map (roll_list L)
-    |> transpose
-    |> List.map (roll_list R)
-    |> transpose
-    |> List.map (roll_list R)
-  in
   let charss = (lines |> List.map string_to_list) in
-  let result, n, loop = do_times_until_loop_with_loop 10000 cycle charss in
-  result
-  (* do_times_until_bored 1000000000 cycle charss *)
-  (* |> transpose *)
-  (* |> List.map (roll_list L) *)
+  let it = 1000000000 in
+  let result, loop_start, loop = do_times_until_loop_with_loop it cycle charss in
+  List.nth loop ((it - (it - loop_start-1) ) mod (List.length loop -1) )
+  |> transpose
   |> List.map score
   |> List.fold_left (+) 0
+
+(* let result', n', loop' = do_times_until_loop_with_loop 10000 cycle result in *)
+(* result::result'::(loop @ loop') *)
+(* |> List.map (fun xs -> *)
+(*     xs |> transpose |> List.map score *)
+(*     |> List.fold_left (+) 0 *)
+(*   ) *)
+(* do_times_until_bored 1000000000 cycle charss *)
+(* |> transpose *)
+(* |> List.map (roll_list L) *)
+(* |> List.map score *)
+(* |> List.fold_left (+) 0 *)
 
 let () =
   (* let lines = In_channel.input_lines (In_channel.open_text  "day14.txt") in *)
