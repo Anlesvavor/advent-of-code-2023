@@ -6,14 +6,6 @@ let iota (n : int) : int list =
   in
   iota' n []
 
-let do_times (n : int) f x =
-  let rec aux (n : int) acc =
-    if n = 0
-    then acc
-    else aux (pred n) (f acc)
-  in
-  aux n x
-
 module Memoed = struct
   type 'a t = Novel of 'a | Old of 'a
 
@@ -31,45 +23,22 @@ module Memoed = struct
         novel y
 end
 
-let do_times_until_bored (n : int) f x =
+let get_loop f x =
   let f' = Memoed.memo f in
-  let rec aux (n : int) acc =
-    if n = 0
-    then acc, 0
-    else
-      match f' acc with
-      | Memoed.Old acc' ->
-        let () = Printf.printf "old: c:%d\n" n in
-        acc', n
-      | Memoed.Novel acc' ->
-        let () = Printf.printf "nvel: c:%d\n" n in
-        aux (pred n) acc'
+  let f'' = Memoed.memo f in
+  let rec aux cur idx =
+    match f' cur with
+    | Memoed.Old _ -> cur, idx
+    | Memoed.Novel next -> aux next (succ idx)
   in
-  let result, remained_n = aux n x in
-  result, n - remained_n
-;; (* For some reason this is needed, weird *)
-
-let do_times_until_loop_with_loop (n : int) f x =
-  (* Get to loop start *)
-  let x', loop_n_start = do_times_until_bored n f x in
-  let f' = Memoed.memo f in
-  let rec aux (n : int) acc cur =
-    if n = 0
-    then cur, acc
-    else
-      match f' cur with
-      | Memoed.Old next ->
-        let () = Printf.printf "old: c:%d\n" n in
-        next, cur :: acc
-      | Memoed.Novel next ->
-        let () = Printf.printf "nvel: c:%d\n" n in
-        aux (pred n) (cur :: acc) next
+  let loop_start, loop_start_idx = aux x 0 in
+  let rec aux' acc cur =
+    match f'' cur with
+    | Memoed.Old _ -> acc
+    | Memoed.Novel next -> aux' (cur :: acc) next
   in
-  let result, loop = aux n [] x' in
-  result, loop_n_start, loop
-;;
-
-do_times_until_bored Int.max_int (fun x -> x mod 10) 0
+  let loop = aux' [] loop_start |> List.rev in
+  loop, loop_start_idx
 
 let list_of_string str =
   str |> String.to_seq |> List.of_seq
@@ -87,11 +56,6 @@ let transpose (list : 'a list list) : 'a list list =
   in
   tail
   |> List.fold_left (fun acc xs -> List.map2 (fun a b -> a :: b) xs acc) initial
-
-let hd_opt =
-  function
-  | [] -> None
-  | a :: _ -> Some a
 
 let split_preserving_on (item : 'a) (list : 'a list) : 'a list list =
   let rec aux acc cur =
@@ -204,27 +168,15 @@ let print_board (css : char list list) =
 let main_part_2 (lines : string list) =
   let charss = (lines |> List.map string_to_list) in
   let it = 1000000000 in
-  let result, loop_start, loop = do_times_until_loop_with_loop it cycle charss in
-  List.nth loop ((it - (it - loop_start-1) ) mod (List.length loop -1) )
+  let loop, idx = get_loop cycle charss in
+  List.nth loop ((it - idx) mod (List.length loop))
   |> transpose
   |> List.map score
   |> List.fold_left (+) 0
 
-(* let result', n', loop' = do_times_until_loop_with_loop 10000 cycle result in *)
-(* result::result'::(loop @ loop') *)
-(* |> List.map (fun xs -> *)
-(*     xs |> transpose |> List.map score *)
-(*     |> List.fold_left (+) 0 *)
-(*   ) *)
-(* do_times_until_bored 1000000000 cycle charss *)
-(* |> transpose *)
-(* |> List.map (roll_list L) *)
-(* |> List.map score *)
-(* |> List.fold_left (+) 0 *)
-
 let () =
-  (* let lines = In_channel.input_lines (In_channel.open_text  "day14.txt") in *)
-  let lines = In_channel.input_lines (In_channel.open_text "day14.example.txt") in
+  let lines = In_channel.input_lines (In_channel.open_text  "day14.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day14.example.txt") in *)
   let () = List.iter (Printf.printf "%s\n") lines in
   let () = print_newline () in
   let result = main_part_2 lines in
