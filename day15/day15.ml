@@ -23,22 +23,8 @@ let () =
   let () = print_newline () in
   print_int (main lines)
 
-
-let split_preserving_on (item : 'a) (list : 'a list) : 'a list list =
-  let rec aux acc cur =
-    function
-    | [] -> cur :: acc
-    | hd :: tl ->
-      if hd = item
-      then aux ([hd] :: cur :: acc) [] tl
-      else aux acc (hd :: cur) tl
-  in
-  aux [] [] list
-  |> List.map (List.rev) |> List.rev
-
 module Lens = struct
   type op = Add of int | Remove
-
   type t = string * op
 
   let lens_of_string (str : string) : t =
@@ -60,7 +46,7 @@ module Lens = struct
 
 end
 
-let upsert (f : 'a -> 'b) value list =
+let upsert (f : 'a -> 'b) (value : 'a) (list : 'a list) : 'a list =
   if List.exists (fun x -> (f x) = (f value)) list
   then List.map (fun x -> if (f x) = (f value) then value else x) list
   else list @ [value]
@@ -73,27 +59,41 @@ let main_part_2 (lines : string list) =
   |> List.fold_left (fun boxes lens ->
       let (label, op) = lens in
       let lens_hash = hash label in
-      let boxes' = boxes |> List.map (fun (id, box) ->
-          if id = lens_hash
-          then (id, box)
-          else (id, match op with
-            | Lens.Remove -> box |> List.filter (fun (str, _) -> str = label)
-            | Lens.Add focal_lenght -> box |> upsert (fst) (label, focal_lenght)
-            )
-        )
+      let existing = List.assoc_opt lens_hash boxes in
+      let updated = match existing with
+        | None ->
+          begin
+            match op with
+            | Lens.Remove -> None
+            | Lens.Add focal_lenght -> Some (lens_hash, [(label, focal_lenght)])
+          end
+        | Some box ->
+          begin
+            match op with
+            | Lens.Remove ->
+              let box_without_current =
+                List.filter (fun (str, _) -> str <> label) box
+              in
+              Some (lens_hash, box_without_current)
+            | Lens.Add focal_lenght ->
+              let new_box = upsert (fst) (label, focal_lenght) box in
+              Some (lens_hash, new_box)
+          end
       in
-      boxes'
+      match updated with
+      | None -> boxes
+      | Some updated -> upsert (fst) updated boxes
     ) []
   |> List.fold_left (fun acc (id, boxes) ->
       boxes
-      |> List.mapi (fun i (_, focal_lenght) -> (i +1) * focal_lenght)
+      |> List.mapi (fun i (_, focal_lenght) -> (succ id) * (succ i) * focal_lenght)
       |> List.fold_left (+) 0
       |> ((+) acc)
     ) 0
 
 let () =
-  (* let lines = In_channel.input_lines (In_channel.open_text  "day15.txt") in *)
-  let lines = In_channel.input_lines (In_channel.open_text "day15.example.txt") in
+  let lines = In_channel.input_lines (In_channel.open_text  "day15.txt") in
+  (* let lines = In_channel.input_lines (In_channel.open_text "day15.example.txt") in *)
   let () = List.iter (Printf.printf "%s\n") lines in
   let () = print_newline () in
   print_int (main_part_2 lines)
