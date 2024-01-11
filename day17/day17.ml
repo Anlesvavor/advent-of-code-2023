@@ -39,7 +39,7 @@ module Node = struct
     ; weight : int
     ; score : int
     ; visited : bool
-    (* ; route_to_node : t option *)
+    ; route_to_node : (t * direction) option
     }
 
   let compare a b =
@@ -57,24 +57,21 @@ module Node = struct
         |> List.mapi (fun col d ->
             { coord = (row, col)
             ; weight = d
-            ; score = Int.max_int
+            ; score = Int.max_int / 2
             ; visited = false
+            ; route_to_node = None
             }
           )
       )
     |> List.flatten
 
-  let distance (a : Node.t) (b : Node.t) : int =
+  let distance (a : t) (b : t) : int =
     manhattan_distance (a.coord) (b.coord)
 
-  (* let get_path (t : t) : t list = *)
-  (*   let initial = t.route_to_node in *)
-  (*   let rec aux acc node = *)
-  (*     match node with *)
-  (*     | None -> acc *)
-  (*     | Some n -> aux (n :: acc) (n.route_to_node) *)
-  (*   in *)
-  (*   aux [] initial *)
+  let rec traverse_path (t : t) () =
+    match t.route_to_node with
+    | None -> Seq.Nil
+    | Some (next, dir) -> Seq.Cons ((next, dir), traverse_path next)
 
 end
 
@@ -161,10 +158,12 @@ module Pathfinding = struct
 
   (* module Graph = Set.Make(Vertex) *)
 
-  (* let node_with_lowest_score (node: Node.t) (graph : Graph.t) : Node.t = *)
-  (*   Graph.fold (fun (node : Node.t) (acc : Node.t) -> *)
-  (*       if node.visited && node.score < acc.score *)
-  (*     ) graph (Graph.min_elt graph) *)
+  let node_with_lowest_score (graph : Graph.t) : Node.t =
+    Graph.NodeSet.fold (fun (node : Node.t) (acc : Node.t) ->
+        if node.visited && node.score < acc.score
+        then node
+        else acc
+      ) graph.nodes (Graph.NodeSet.min_elt graph.nodes)
 
   let neighboor_with_lowest_score (node : Node.t) (graph : Graph.t) : (Node.t * direction) =
     let neighboors = Graph.neighboors_with_dir_of_node node graph in
@@ -181,9 +180,85 @@ module Pathfinding = struct
 
 
   let calculate_score (cur_node : Node.t) (next_node : Node.t) : int =
-    cur_node.score + next_node.weight
+    if cur_node.score = (Int.max_int / 2)
+    then (Int.max_int / 2)
+    else cur_node.score + next_node.weight
 
-  let algorithm (graph : Graph.t) (start_node : Node.t) (target_node : Node.t) =
+  (* let algorithm (graph : Graph.t) (start_node : Node.t) (target_node : Node.t) = *)
+  (*   let rec loop paths = *)
+  (*     let paths' = List.fold_left (fun acc path -> *)
+  (*         match path with *)
+  (*         | [] -> acc *)
+  (*         | ((hd, d0) :: (_, d1) :: tl) as path -> *)
+  (*           let neighboors = Graph.neighboors_with_dir_of_node hd graph in *)
+  (*           let neighboors = List.filter (fun (node, dir) -> rule dir d0 d1) neighboors in *)
+  (*           let neighboors = List.filter (fun (node, _) -> *)
+  (*               not (List.exists (fun (n,_) -> n = node) path) *)
+  (*             ) neighboors *)
+  (*           in *)
+  (*           let neighboor = *)
+  (*             match neighboors with *)
+  (*             | hd :: tl -> *)
+  (*               List.fold_left (fun (acc : Node.t * direction) (n : Node.t * direction) -> *)
+  (*                   if (distance (fst acc)) > (distance (fst n)) *)
+  (*                   then n *)
+  (*                   else acc *)
+  (*                 ) hd tl *)
+  (*               |> fun x -> x :: path *)
+  (*             | [] -> path *)
+  (*           in *)
+  (*           let path' = *)
+  (*             match neighboors with *)
+  (*             | hd :: tl -> *)
+  (*               let next = List.fold_left (fun (acc : Node.t * direction) (n : Node.t * direction) -> *)
+  (*                   if (distance (fst acc)) > (distance (fst n)) *)
+  (*                   then n *)
+  (*                   else acc *)
+  (*                 ) hd tl *)
+  (*               in *)
+  (*               next :: path *)
+  (*             | [] -> path *)
+  (*           in *)
+  (*           path' *)
+  (*         | ((hd, _) :: tl) as path -> *)
+  (*           let neighboors = Graph.neighboors_with_dir_of_node hd graph in *)
+  (*           let neighboors = List.filter (fun (node, _) -> *)
+  (*               not (List.exists (fun (n,_) -> n = node) path) *)
+  (*             ) neighboors *)
+  (*           in *)
+  (*           let candidate_paths = List.map (fun x -> x :: path) neighboors in *)
+  (*           List.fold_left (fun acc x -> x :: acc) acc candidate_paths *)
+  (*       ) [] paths *)
+  (*     in *)
+  (*     let () = List.iter (fun path -> *)
+  (*         List.iter (fun ((x : Node.t), _) -> *)
+  (*             let row, col = x.coord in *)
+  (*             Printf.printf "%d(%d,%d); " x.weight row col *)
+  (*           ) path; *)
+  (*         print_newline () *)
+  (*       ) paths' *)
+  (*     in *)
+  (*     let finished = *)
+  (*       paths' *)
+  (*       |> List.map (hd_opt) *)
+  (*       |> List.for_all (function *)
+  (*           | Some (n, _) -> n = target_node *)
+  (*           | _ -> false *)
+  (*         ) *)
+  (*     in *)
+  (*     if finished *)
+  (*     then paths' *)
+  (*     else loop paths' *)
+  (*   in *)
+  (*   let paths = loop [[(start_node, West)]] in *)
+  (*   paths *)
+  (*   |> List.map (fun path -> *)
+  (*       path |> List.fold_left (fun acc ((node : Node.t), _) -> *)
+  (*           acc + (node.weight) *)
+  (*         ) 0 *)
+  (*     ) *)
+
+  let is_valid (node : Node.t) (dir : direction) : bool =
     let rule (d : direction) (d0 : direction) (d1 : direction) : bool =
       let is_reverse a b =
         match a, b with
@@ -195,80 +270,47 @@ module Pathfinding = struct
       | a, b, c when a = b && b = c -> false
       | a, b, _ -> not (is_reverse a b)
     in
-    let rec loop paths =
-      let paths' = List.fold_left (fun acc path ->
-          match path with
-          | [] -> acc
-          | ((hd, d0) :: (_, d1) :: tl) as path ->
-            let neighboors = Graph.neighboors_with_dir_of_node hd graph in
-            let neighboors = List.filter (fun (node, dir) -> rule dir d0 d1) neighboors in
-            let neighboors = List.filter (fun (node, _) ->
-                not (List.exists (fun (n,_) -> n = node) path)
-              ) neighboors
-            in
-            let neighboor =
-              match neighboors with
-              | hd :: tl ->
-                List.fold_left (fun (acc : Node.t * direction) (n : Node.t * direction) ->
-                    if (distance (fst acc)) > (distance (fst n))
-                    then n
-                    else acc
-                  ) hd tl
-                |> fun x -> x :: path
-              | [] -> path
-            in
-            let neighboors =
-              match neighboors with
-              | hd :: tl ->
-                let next = List.fold_left (fun (acc : Node.t * direction) (n : Node.t * direction) ->
-                    if (distance (fst acc)) > (distance (fst n))
-                    then n
-                    else acc
-                  ) hd tl
-                in
-                next :: path
-              | [] -> path
-            in
-          | ((hd, _) :: tl) as path ->
-            let neighboors = Graph.neighboors_with_dir_of_node hd graph in
-            let neighboors = List.filter (fun (node, _) ->
-                not (List.exists (fun (n,_) -> n = node) path)
-              ) neighboors
-            in
-            let candidate_paths = List.map (fun x -> x :: path) neighboors in
-            List.fold_left (fun acc x -> x :: acc) acc candidate_paths
-        ) [] paths
-      in
-      let () = List.iter (fun path ->
-          List.iter (fun ((x : Node.t), _) ->
-              let row, col = x.coord in
-              Printf.printf "%d(%d,%d); " x.weight row col
-            ) path;
-          print_newline ()
-        ) paths'
-      in
-      let finished =
-        paths'
-        |> List.map (hd_opt)
-        |> List.for_all (function
-            | Some (n, _) -> n = target_node
-            | _ -> false
-          )
-      in
-      if finished
-      then paths'
-      else loop paths'
+    Node.traverse_path node
+    |> Seq.take 2
+    |> Seq.map (snd)
+    |> List.of_seq
+    |> function
+    | [a; b] -> rule dir a b
+    | _ -> true
+
+  let algorithm (graph : Graph.t) (start_node : Node.t) (target_node : Node.t) =
+    let start_node = Graph.NodeSet.find start_node graph.nodes in
+    let nodes = Graph.NodeSet.map (fun node ->
+        if node.coord = start_node.coord
+        then {node with score = 0}
+        else node
+      ) graph.nodes
     in
-    let paths = loop [[(start_node, West)]] in
-    paths
-    |> List.map (fun path ->
-        path |> List.fold_left (fun acc ((node : Node.t), _) ->
-            acc + (node.weight)
-          ) 0
-      )
+    let graph = {graph with nodes=nodes } in
+    let rec loop graph =
+      let cur = node_with_lowest_score graph in
+      let cur = { cur with visited = true } in
+      let neighbors = Graph.NeighboorMap.find cur graph.neighboors in
+      let nodes = Graph.NodeSet.map (fun node ->
+          match List.assoc_opt node.coord neighbors with
+          | Some dir when ((not node.visited) && (is_valid node dir)) ->
+            let new_score = calculate_score cur node in
+            if new_score < node.score
+            then { node with score = new_score; route_to_node = Some (cur, dir) }
+            else node
+          | _ -> node
+        ) graph.nodes
+      in
+      let graph = { graph with nodes=nodes } in
+      if cur.coord = target_node.coord
+      then Result.Ok cur
+      else if (node_with_lowest_score graph).score = (Int.max_int / 2)
+      then Result.Error "Path not found : ("
+      else loop graph
+    in
+    loop graph
 
 end
-
 
 let main lines =
   let nodes = Node.nodes_from_lines lines in
@@ -277,10 +319,17 @@ let main lines =
   let starter_node = Graph.NodeSet.min_elt (graph.nodes) in
   let target_node = Graph.last_node graph in
   Pathfinding.algorithm graph starter_node target_node
+  |> function
+  | Ok node ->
+    Node.traverse_path node
+    |> Seq.map (fun ((node : Node.t), _) -> node.weight)
+    |> Seq.fold_left (+) 0
+  | Error e -> failwith e
 
 let () =
   (* let lines = In_channel.input_lines (In_channel.open_text  "day17.txt") in *)
   let lines = In_channel.input_lines (In_channel.open_text "day17.example.txt") in
   let () = List.iter (Printf.printf "%s\n") lines in
   let () = print_newline () in
-  (main lines) |> List.iter (print_int)
+  (* (main lines) |> List.iter (print_int) *)
+  print_int @@ main lines
