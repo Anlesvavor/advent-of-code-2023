@@ -146,136 +146,46 @@ end
 
 module Pathfinding = struct
 
-  (* module Vertex = struct *)
-  (*   type t = node * node *)
-  (*   let compare a b = *)
-  (*     let (a_row, a_col) = a.coord in *)
-  (*     let (b_row, b_col) = b.coord in *)
-  (*     match compare a_row b_row with *)
-  (*     | 0 -> Stdlib.compare a_col b_col *)
-  (*     | a -> a *)
-  (* end *)
-
-  (* module Graph = Set.Make(Vertex) *)
-
   let node_with_lowest_score (graph : Graph.t) : Node.t =
-    Graph.NodeSet.fold (fun (node : Node.t) (acc : Node.t) ->
-        if node.visited && node.score < acc.score
-        then node
-        else acc
-      ) graph.nodes (Graph.NodeSet.min_elt graph.nodes)
-
-  let neighboor_with_lowest_score (node : Node.t) (graph : Graph.t) : (Node.t * direction) =
-    let neighboors = Graph.neighboors_with_dir_of_node node graph in
-    match neighboors with
-    | [] -> failwith "???"
-    | head :: tail ->
-      tail |> List.fold_left (fun (acc : Node.t * direction) (cur : Node.t * direction) ->
-          let acc_score = (fst acc).score in
-          let cur_score = (fst cur).score in
-          if acc_score > cur_score
-          then cur
+    Graph.NodeSet.elements graph.nodes
+    |> List.filter (fun (node : Node.t) -> not node.visited)
+    |> function
+    | hd :: tl ->
+      List.fold_left (fun (acc: Node.t) (node : Node.t) ->
+          if node.visited
+          then acc
+          else if node.score < acc.score
+          then node
           else acc
-        ) head
-
+        ) hd tl
+    | [] -> failwith "No nodes?!"
 
   let calculate_score (cur_node : Node.t) (next_node : Node.t) : int =
     if cur_node.score = (Int.max_int / 2)
     then (Int.max_int / 2)
     else cur_node.score + next_node.weight
 
-  (* let algorithm (graph : Graph.t) (start_node : Node.t) (target_node : Node.t) = *)
-  (*   let rec loop paths = *)
-  (*     let paths' = List.fold_left (fun acc path -> *)
-  (*         match path with *)
-  (*         | [] -> acc *)
-  (*         | ((hd, d0) :: (_, d1) :: tl) as path -> *)
-  (*           let neighboors = Graph.neighboors_with_dir_of_node hd graph in *)
-  (*           let neighboors = List.filter (fun (node, dir) -> rule dir d0 d1) neighboors in *)
-  (*           let neighboors = List.filter (fun (node, _) -> *)
-  (*               not (List.exists (fun (n,_) -> n = node) path) *)
-  (*             ) neighboors *)
-  (*           in *)
-  (*           let neighboor = *)
-  (*             match neighboors with *)
-  (*             | hd :: tl -> *)
-  (*               List.fold_left (fun (acc : Node.t * direction) (n : Node.t * direction) -> *)
-  (*                   if (distance (fst acc)) > (distance (fst n)) *)
-  (*                   then n *)
-  (*                   else acc *)
-  (*                 ) hd tl *)
-  (*               |> fun x -> x :: path *)
-  (*             | [] -> path *)
-  (*           in *)
-  (*           let path' = *)
-  (*             match neighboors with *)
-  (*             | hd :: tl -> *)
-  (*               let next = List.fold_left (fun (acc : Node.t * direction) (n : Node.t * direction) -> *)
-  (*                   if (distance (fst acc)) > (distance (fst n)) *)
-  (*                   then n *)
-  (*                   else acc *)
-  (*                 ) hd tl *)
-  (*               in *)
-  (*               next :: path *)
-  (*             | [] -> path *)
-  (*           in *)
-  (*           path' *)
-  (*         | ((hd, _) :: tl) as path -> *)
-  (*           let neighboors = Graph.neighboors_with_dir_of_node hd graph in *)
-  (*           let neighboors = List.filter (fun (node, _) -> *)
-  (*               not (List.exists (fun (n,_) -> n = node) path) *)
-  (*             ) neighboors *)
-  (*           in *)
-  (*           let candidate_paths = List.map (fun x -> x :: path) neighboors in *)
-  (*           List.fold_left (fun acc x -> x :: acc) acc candidate_paths *)
-  (*       ) [] paths *)
-  (*     in *)
-  (*     let () = List.iter (fun path -> *)
-  (*         List.iter (fun ((x : Node.t), _) -> *)
-  (*             let row, col = x.coord in *)
-  (*             Printf.printf "%d(%d,%d); " x.weight row col *)
-  (*           ) path; *)
-  (*         print_newline () *)
-  (*       ) paths' *)
-  (*     in *)
-  (*     let finished = *)
-  (*       paths' *)
-  (*       |> List.map (hd_opt) *)
-  (*       |> List.for_all (function *)
-  (*           | Some (n, _) -> n = target_node *)
-  (*           | _ -> false *)
-  (*         ) *)
-  (*     in *)
-  (*     if finished *)
-  (*     then paths' *)
-  (*     else loop paths' *)
-  (*   in *)
-  (*   let paths = loop [[(start_node, West)]] in *)
-  (*   paths *)
-  (*   |> List.map (fun path -> *)
-  (*       path |> List.fold_left (fun acc ((node : Node.t), _) -> *)
-  (*           acc + (node.weight) *)
-  (*         ) 0 *)
-  (*     ) *)
-
   let is_valid (node : Node.t) (dir : direction) : bool =
+    let is_reverse a b =
+      match a, b with
+      | North, South | South, North -> true
+      | East, West | West, East -> true
+      | _, _ -> false
+    in
     let rule (d : direction) (d0 : direction) (d1 : direction) : bool =
-      let is_reverse a b =
-        match a, b with
-        | North, South | South, North -> true
-        | East, West | West, East -> true
-        | _, _ -> false
-      in
       match d, d0, d1 with
       | a, b, c when a = b && b = c -> false
       | a, b, _ -> not (is_reverse a b)
     in
-    Node.traverse_path node
-    |> Seq.take 2
-    |> Seq.map (snd)
-    |> List.of_seq
-    |> function
+    let path =
+      Node.traverse_path node
+      |> Seq.take 2
+      |> Seq.map (snd)
+      |> List.of_seq
+    in
+    match path with
     | [a; b] -> rule dir a b
+    | [a] -> not(is_reverse dir a)
     | _ -> true
 
   let algorithm (graph : Graph.t) (start_node : Node.t) (target_node : Node.t) =
@@ -290,16 +200,22 @@ module Pathfinding = struct
     let rec loop graph =
       let cur = node_with_lowest_score graph in
       let cur = { cur with visited = true } in
+      let nodes = Graph.NodeSet.map (fun node ->
+          if node.coord = cur.coord
+          then cur
+          else node
+        ) graph.nodes
+      in
       let neighbors = Graph.NeighboorMap.find cur graph.neighboors in
       let nodes = Graph.NodeSet.map (fun node ->
           match List.assoc_opt node.coord neighbors with
           | Some dir when ((not node.visited) && (is_valid node dir)) ->
             let new_score = calculate_score cur node in
-            if new_score < node.score
+            if (new_score < node.score)
             then { node with score = new_score; route_to_node = Some (cur, dir) }
             else node
           | _ -> node
-        ) graph.nodes
+        ) nodes
       in
       let graph = { graph with nodes=nodes } in
       if cur.coord = target_node.coord
@@ -323,7 +239,9 @@ let main lines =
   | Ok node ->
     Node.traverse_path node
     |> Seq.map (fun ((node : Node.t), _) -> node.weight)
-    |> Seq.fold_left (+) 0
+    |> List.of_seq
+    |> List.rev
+  (* |> Seq.fold_left (+) 0 *)
   | Error e -> failwith e
 
 let () =
@@ -331,5 +249,5 @@ let () =
   let lines = In_channel.input_lines (In_channel.open_text "day17.example.txt") in
   let () = List.iter (Printf.printf "%s\n") lines in
   let () = print_newline () in
-  (* (main lines) |> List.iter (print_int) *)
-  print_int @@ main lines
+  (main lines) |> List.iter (print_int)
+(* print_int @@ main lines *)
