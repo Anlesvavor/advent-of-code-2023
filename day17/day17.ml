@@ -1,4 +1,6 @@
 
+let inf = (Int.max_int / 2)
+
 let digits_of_string str =
   str
   |> String.to_seq
@@ -8,7 +10,6 @@ let digits_of_string str =
 let hd_opt = function
   | [] -> None
   | x :: _ -> Some x
-
 
 let bounded lower upper x =
   let lower, upper = if lower > upper then upper, lower else lower, upper in
@@ -33,12 +34,45 @@ let manhattan_distance (a_row, a_col) (b_row, b_col) =
 
 type direction = North | East | South | West
 
+let string_of_direction =
+  function
+  | North -> "N"
+  | East -> "E"
+  | South -> "S"
+  | West -> "W"
+
+module PriorityQueue = struct
+  type 'a t = ('a * int) list
+
+  let enqueue (comp : 'a -> int) (a : 'a) (queue : 'a t) : 'a t =
+    let p = comp a in
+    let rec aux acc =
+      function
+      | [] -> acc @ [(a, p)]
+      | (hd, hd_p) :: tl ->
+        if p < hd_p
+        then acc @ ((a, p) :: (hd, hd_p) :: tl)
+        else aux (acc @ [(hd, hd_p)]) tl
+    in
+    aux [] queue
+
+  let dequeue (queue : 'a t) : ('a option) * ('a t) =
+    match queue with
+    | (hd, _) :: tl -> (Some hd), tl
+    | [] -> None, []
+
+  (* enqueue (snd) ('c',1) |> enqueue (snd) ('e', 20) |> enqueue (snd) ('f', 2) |> enqueue (snd) ('g', 1) *)
+  (* [(('c', 1), 1); (('g', 1), 1); (('f', 2), 2); (('a', 10), 10); (('b', 10), 10); *)
+  (*  (('e', 20), 20)] *)
+
+end
+
 module Node = struct
   type t =
     { coord : int * int
     ; weight : int
     ; score : int
-    ; visited : bool
+    ; visit_count : int
     ; route_to_node : (t * direction) option
     }
 
@@ -57,8 +91,8 @@ module Node = struct
         |> List.mapi (fun col d ->
             { coord = (row, col)
             ; weight = d
-            ; score = Int.max_int / 2
-            ; visited = false
+            ; score = inf
+            ; visit_count = 0
             ; route_to_node = None
             }
           )
@@ -68,13 +102,26 @@ module Node = struct
   let distance (a : t) (b : t) : int =
     manhattan_distance (a.coord) (b.coord)
 
-  let rec traverse_path (t : t) () =
+  let rec traverse_path (t : t) () : (t * direction) Seq.node =
     match t.route_to_node with
     | None -> Seq.Nil
     | Some (next, dir) -> Seq.Cons ((next, dir), traverse_path next)
 
-end
+  let string_of_node (t : t) : string =
+    Printf.sprintf "%d(%d,%d)" t.weight (fst t.coord) (snd t.coord)
 
+  let string_of_path (t : t) =
+    traverse_path t
+    |> Seq.fold_left (fun acc (n, d) ->
+        acc ^ (string_of_node n) ^ (string_of_direction d) ^ "; "
+      ) ""
+
+  let directions_of_path (t : t) : direction list =
+    traverse_path t
+    |> Seq.map (snd)
+    |> List.of_seq
+
+end
 
 module Graph = struct
   module NodeSet = Set.Make(Node)
@@ -145,48 +192,86 @@ module Graph = struct
 end
 
 module Pathfinding = struct
+  let is_reverse a b =
+    match a, b with
+    | North, South | South, North -> true
+    | East, West | West, East -> true
+    | _, _ -> false
+
+  let no_consecutive_rule (d : direction) (d0 : direction) (d1 : direction) (d2 : direction) : bool =
+    match d, d0, d1, d2 with
+    | a, b, c, f when (a = b) && (b = c) && (c = f) -> false
+    | a, b, _, _ -> not (is_reverse a b)
+
+  let is_direction_list_valid (directions : direction list) : bool =
+    match directions with
+    | [] -> true
+    | (hd :: tl) as path ->
+      let rec aux =
+        function
+        | a :: ((b :: c :: d :: _) as tl) ->
+          if no_consecutive_rule a b c d
+          then false
+          else if is_reverse a b
+          then false
+          else aux tl
+        | a :: ((b :: _) as tl) ->
+          if is_reverse a b
+          then false
+          else aux tl
+        | _ -> true
+      in
+      aux path
+
+  let is_node_valid (node : Node.t) : bool =
+    is_direction_list_valid @@ Node.directions_of_path node
+
+  let is_valid_given_direction (node : Node.t) (dir : direction) : bool =
+    let directions = Node.directions_of_path node in
+    let directions = dir :: directions in
+    is_direction_list_valid directions
+
+  let get_visit_index (graph : Graph.t) : int =
+    Graph.NodeSet.elements graph.nodes
+    |> List.map (fun (node : Node.t) -> node.visit_count)
+    |> function
+    | hd :: tl ->  List.fold_left (min) hd tl
+    | [] -> 0
+  (* |> function *)
+  (* | [] -> failwith "?!?!??!?!?!??!" *)
+  (* | [(n : Node.t)] -> n.visit_count *)
+  (* | hd :: tl -> *)
+
+  (*   let node = List.fold_left (fun (acc : Node.t) (node : Node.t) -> *)
+  (*       if acc.visit_count > node.visit_count *)
+  (*       then node *)
+  (*       else acc *)
+  (*     ) hd tl *)
+  (*   in *)
+  (*   node.visit_count *)
 
   let node_with_lowest_score (graph : Graph.t) : Node.t =
+    let current_visit_index = get_visit_index graph in
     Graph.NodeSet.elements graph.nodes
-    |> List.filter (fun (node : Node.t) -> not node.visited)
+    |> List.filter (fun (node : Node.t) -> node.visit_count = current_visit_index)
+    |> List.filter (fun (node : Node.t) -> is_node_valid node)
     |> function
     | hd :: tl ->
       List.fold_left (fun (acc: Node.t) (node : Node.t) ->
-          if node.visited
+          if node.visit_count > current_visit_index
           then acc
           else if node.score < acc.score
           then node
           else acc
         ) hd tl
+    | [a] -> a
     | [] -> failwith "No nodes?!"
 
   let calculate_score (cur_node : Node.t) (next_node : Node.t) : int =
-    if cur_node.score = (Int.max_int / 2)
-    then (Int.max_int / 2)
+    if cur_node.score = inf
+    then inf
     else cur_node.score + next_node.weight
 
-  let is_valid (node : Node.t) (dir : direction) : bool =
-    let is_reverse a b =
-      match a, b with
-      | North, South | South, North -> true
-      | East, West | West, East -> true
-      | _, _ -> false
-    in
-    let rule (d : direction) (d0 : direction) (d1 : direction) : bool =
-      match d, d0, d1 with
-      | a, b, c when a = b && b = c -> false
-      | a, b, _ -> not (is_reverse a b)
-    in
-    let path =
-      Node.traverse_path node
-      |> Seq.take 2
-      |> Seq.map (snd)
-      |> List.of_seq
-    in
-    match path with
-    | [a; b] -> rule dir a b
-    | [a] -> not(is_reverse dir a)
-    | _ -> true
 
   let algorithm (graph : Graph.t) (start_node : Node.t) (target_node : Node.t) =
     let start_node = Graph.NodeSet.find start_node graph.nodes in
@@ -198,18 +283,27 @@ module Pathfinding = struct
     in
     let graph = {graph with nodes=nodes } in
     let rec loop graph =
+      let visit_index = get_visit_index graph in
+      let () = print_endline @@ string_of_int visit_index in
       let cur = node_with_lowest_score graph in
-      let cur = { cur with visited = true } in
+      let cur = { cur with visit_count = (succ cur.visit_count) } in
       let nodes = Graph.NodeSet.map (fun node ->
           if node.coord = cur.coord
           then cur
           else node
         ) graph.nodes
       in
+      (* Use neigh as a function *)
       let neighbors = Graph.NeighboorMap.find cur graph.neighboors in
       let nodes = Graph.NodeSet.map (fun node ->
           match List.assoc_opt node.coord neighbors with
-          | Some dir when ((not node.visited) && (is_valid node dir)) ->
+          | Some dir when ((node.visit_count <= visit_index) && (is_valid_given_direction node dir)) ->
+            let () = print_endline @@
+              (string_of_int node.visit_count) ^ " "
+              ^ (Node.string_of_node node)
+              ^ (string_of_direction dir)
+              ^ (Node.string_of_path node)
+            in
             let new_score = calculate_score cur node in
             if (new_score < node.score)
             then { node with score = new_score; route_to_node = Some (cur, dir) }
@@ -220,13 +314,14 @@ module Pathfinding = struct
       let graph = { graph with nodes=nodes } in
       if cur.coord = target_node.coord
       then Result.Ok cur
-      else if (node_with_lowest_score graph).score = (Int.max_int / 2)
-      then Result.Error "Path not found : ("
+      else if (node_with_lowest_score graph).score = inf
+      then loop graph
       else loop graph
     in
     loop graph
 
 end
+
 
 let main lines =
   let nodes = Node.nodes_from_lines lines in
@@ -237,17 +332,34 @@ let main lines =
   Pathfinding.algorithm graph starter_node target_node
   |> function
   | Ok node ->
-    Node.traverse_path node
-    |> Seq.map (fun ((node : Node.t), _) -> node.weight)
-    |> List.of_seq
-    |> List.rev
+    Node.string_of_path node
+  (* |> Seq.map (fun ((node : Node.t), _) -> node.weight) *)
+  (* |> List.of_seq *)
+  (* |> List.rev *)
   (* |> Seq.fold_left (+) 0 *)
-  | Error e -> failwith e
+  | Error e -> e
+
+let main_2 lines =
+  let nodes = Node.nodes_from_lines lines in
+  let graph = Graph.graph_of_board nodes in
+  (* let starter_node = NodeSet.find_first (fun elt -> elt.coord = (0, 0)) graph.nodes in *)
+  let starter_node = Graph.NodeSet.min_elt (graph.nodes) in
+  let target_node = Graph.last_node graph in
+  Pathfinding.algorithm graph starter_node target_node
+  |> function
+  | Ok node ->
+    Node.string_of_path node
+  (* |> Seq.map (fun ((node : Node.t), _) -> node.weight) *)
+  (* |> List.of_seq *)
+  (* |> List.rev *)
+  (* |> Seq.fold_left (+) 0 *)
+  | Error e -> e
 
 let () =
   (* let lines = In_channel.input_lines (In_channel.open_text  "day17.txt") in *)
   let lines = In_channel.input_lines (In_channel.open_text "day17.example.txt") in
   let () = List.iter (Printf.printf "%s\n") lines in
   let () = print_newline () in
-  (main lines) |> List.iter (print_int)
+  print_endline (main lines)
+(* (main lines) |> List.iter (print_int) *)
 (* print_int @@ main lines *)
