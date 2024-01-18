@@ -89,7 +89,7 @@ module Node = struct
   type t =
     { coord : int * int
     ; weight : int
-    ; route_to_node : (t * direction) option
+    (* ; route_to_node : (t * direction) option *)
     }
 
   let compare a b =
@@ -107,7 +107,7 @@ module Node = struct
         |> List.mapi (fun col d ->
             { coord = (row, col)
             ; weight = d
-            ; route_to_node = None
+              (* ; route_to_node = None *)
             }
           )
       )
@@ -116,24 +116,24 @@ module Node = struct
   let distance (a : t) (b : t) : int =
     manhattan_distance (a.coord) (b.coord)
 
-  let rec traverse_path (t : t) () : (t * direction) Seq.node =
-    match t.route_to_node with
-    | None -> Seq.Nil
-    | Some (next, dir) -> Seq.Cons ((next, dir), traverse_path next)
-
   let string_of_node (t : t) : string =
     Printf.sprintf "%d(%d,%d)" t.weight (fst t.coord) (snd t.coord)
 
-  let string_of_path (t : t) =
-    traverse_path t
-    |> Seq.fold_left (fun acc (n, d) ->
-        acc ^ (string_of_node n) ^ (string_of_direction d) ^ "; "
-      ) ""
+  (* let rec traverse_path (t : t) () : (t * direction) Seq.node = *)
+  (*   match t.route_to_node with *)
+  (*   | None -> Seq.Nil *)
+  (*   | Some (next, dir) -> Seq.Cons ((next, dir), traverse_path next) *)
 
-  let directions_of_path (t : t) : direction list =
-    traverse_path t
-    |> Seq.map (snd)
-    |> List.of_seq
+  (* let string_of_path (t : t) = *)
+  (*   traverse_path t *)
+  (*   |> Seq.fold_left (fun acc (n, d) -> *)
+  (*       acc ^ (string_of_node n) ^ (string_of_direction d) ^ "; " *)
+  (*     ) "" *)
+
+  (* let directions_of_path (t : t) : direction list = *)
+  (*   traverse_path t *)
+  (*   |> Seq.map (snd) *)
+  (*   |> List.of_seq *)
 
   let eq_coord (a : t) (b : t) : bool =
     a.coord = b.coord
@@ -151,8 +151,6 @@ module PQueue = struct
       function
       | [] -> acc @ [(a, p)]
       | (hd, hd_p) :: tl ->
-
-
         if p < hd_p
         then acc @ ((a, p) :: (hd, hd_p) :: tl)
         else aux (acc @ [(hd, hd_p)]) tl
@@ -190,6 +188,27 @@ let auto_fold (f : 'a -> 'a -> 'a) (list : 'a list) : 'a =
 
 let min_elt f = auto_fold (fun a b -> if (f a) < (f b) then a else b)
 
+(* end *)
+let take (n : int) (list : 'a list) : 'a list =
+  let rec aux acc count =
+    function
+    | [] -> acc
+    | x :: xs ->
+      if count > n
+      then acc
+      else aux (x :: acc) (succ count) xs
+  in
+  aux [] 1 list
+  |> List.rev
+
+let rec exists_n_in_a_row (n : int) (list : 'a list) : bool =
+  match list with
+  | hd :: tl when (List.length list) >= n ->
+    if List.for_all ((=) hd) (take n list)
+    then true
+    else exists_n_in_a_row n tl
+  | _ -> false
+
 module Dijkstra = struct
 
   let distance (a : Node.t) (b : Node.t) : int =
@@ -219,11 +238,14 @@ module Dijkstra = struct
         else (n, inf)
       ) nodes
     in
+    let initial_directions = List.map (fun n -> (n, [])) nodes in
     let queue = PQueue.queue_of_list (fun (n : Node.t) -> n.weight) nodes in
-    let initial_visited = [] in
-    let rec loop (distances : (Node.t * int) list) =
+    let rec loop
+        (distances : (Node.t * int) list)
+        (directions : (Node.t * (direction list)) list)
+      =
       function
-      | [] -> (distances)
+      | [] -> (distances, directions)
       | (queue : Node.t PQueue.t) ->
         let min_node, dist =
           List.map (fun ((n : Node.t), _) ->
@@ -244,23 +266,52 @@ module Dijkstra = struct
               mem_proj (fst) n queue'
             )
         in
-        let distances' =
+        let (distances', directions') =
           neighboors_of_cur_still_in_q
-          |> List.fold_left (fun distance_acc ((n : Node.t), dir) ->
+          |> List.fold_left (fun (distance_acc, directions_acc) ((n : Node.t), dir) ->
               let get_distance node =
                 List.assoc_opt node distances
                 |> Option.value ~default:(inf)
-                (* |> Option.value ~default:(failwith "No distance found for node") *)
+              in
+              let n_directions' =
+                List.assoc_opt cur directions
+                |> function | Some a -> dir :: a | None -> failwith "No directions?!"
+              in
+              let is_valid_direction =
+                if exists_n_in_a_row 4 n_directions' then false else true
               in
               let alt = n.weight + get_distance cur in
-              if alt < get_distance n
-              then update (fun (k, v) -> k) (n, alt) distances
-              else distance_acc
-            ) distances
+              if (alt < get_distance n) && is_valid_direction
+              then
+                let distances' = update (fun (k, v) -> k) (n, alt) distance_acc in
+                let directions' = update (fun (k, v) -> k) (n, n_directions') directions_acc in
+                (distances', directions')
+              else (distance_acc, directions_acc)
+            ) (distances, directions)
         in
-        loop distances' queue'
+        let debug_distances' =
+          distances'
+          |> List.map (fun ((n : Node.t),(s)) -> ((n.coord, n.weight), s))
+          |> List.filter (fun (_, s) -> s <> inf)
+        in
+        let debug_directions' =
+          directions'
+          |> List.map (fun ((n : Node.t),(d)) -> ((n.coord, n.weight), d))
+          |> List.filter (fun (_, d) -> not @@ List.is_empty d )
+        in
+        let () = print_newline () in
+        let () = List.iter (fun (((x,y), w), s) ->
+            let s = if s = inf then (-1) else s in
+            Printf.printf "(%d,%d),%d,%d; " x y w s
+          ) debug_distances' in
+        let () = print_newline () in
+        let () = List.iter (fun (((x,y), w), d) ->
+            let s = d |> List.rev_map (string_of_direction) |> String.concat "" in
+            Printf.printf "(%d,%d),%d,%s; " x y w s
+          ) debug_directions' in
+        loop distances' directions' queue'
     in
-    loop initial_distances queue
+    loop initial_distances initial_directions queue
 
 end
 
