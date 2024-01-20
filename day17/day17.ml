@@ -116,6 +116,9 @@ module Node = struct
   let distance (a : t) (b : t) : int =
     manhattan_distance (a.coord) (b.coord)
 
+  let get_weight (t : t) : int =
+    t.weight
+
   let string_of_node (t : t) : string =
     Printf.sprintf "%d(%d,%d)" t.weight (fst t.coord) (snd t.coord)
 
@@ -203,7 +206,7 @@ let take (n : int) (list : 'a list) : 'a list =
 
 let rec exists_n_in_a_row (n : int) (list : 'a list) : bool =
   match list with
-  | hd :: tl when (List.length list) >= n ->
+  | hd :: tl when (List.length list) > n ->
     if List.for_all ((=) hd) (take n list)
     then true
     else exists_n_in_a_row n tl
@@ -231,7 +234,7 @@ module Dijkstra = struct
         Some (n, dir)
       ) nodes
 
-  let shortest_path (starter_node : Node.t)  (nodes : Node.t list) =
+  let shortest_path (starter_node : Node.t) (nodes : Node.t list) =
     let initial_distances = List.map (fun n ->
         if n = starter_node
         then (n, 0)
@@ -239,7 +242,7 @@ module Dijkstra = struct
       ) nodes
     in
     let initial_directions = List.map (fun n -> (n, [])) nodes in
-    let queue = PQueue.queue_of_list (fun (n : Node.t) -> n.weight) nodes in
+    let queue = PQueue.empty |> PQueue.enqueue (Fun.const 0) starter_node in
     let rec loop
         (distances : (Node.t * int) list)
         (directions : (Node.t * (direction list)) list)
@@ -247,28 +250,12 @@ module Dijkstra = struct
       function
       | [] -> (distances, directions)
       | (queue : Node.t PQueue.t) ->
-        let min_node, dist =
-          List.map (fun ((n : Node.t), _) ->
-              let (_, d) = List.find (fun (x, _) ->
-                  Node.eq_coord x n
-                ) distances
-              in
-              (n, d)
-            ) queue
-          |> min_elt (snd)
-        in
-        let (cur_opt, (queue' : Node.t PQueue.t)) = PQueue.pop_assoc min_node queue in
+        let (cur_opt, (queue' : Node.t PQueue.t)) = PQueue.dequeue queue in
         let cur = Option.get cur_opt in
         let neighboors_of_cur = neighboors_of_node cur nodes in
-        let neighboors_of_cur_still_in_q =
+        let (distances', directions', queue') =
           neighboors_of_cur
-          |> List.filter (fun ((n : Node.t), _) ->
-              mem_proj (fst) n queue'
-            )
-        in
-        let (distances', directions') =
-          neighboors_of_cur_still_in_q
-          |> List.fold_left (fun (distance_acc, directions_acc) ((n : Node.t), dir) ->
+          |> List.fold_left (fun (distance_acc, directions_acc, queue) ((n : Node.t), dir) ->
               let get_distance node =
                 List.assoc_opt node distances
                 |> Option.value ~default:(inf)
@@ -281,49 +268,39 @@ module Dijkstra = struct
                 if exists_n_in_a_row 4 n_directions' then false else true
               in
               let alt = n.weight + get_distance cur in
-              if (alt < get_distance n) && is_valid_direction
+              if (alt <= get_distance n) && is_valid_direction
               then
                 let distances' = update (fun (k, v) -> k) (n, alt) distance_acc in
-                let directions' = update (fun (k, v) -> k) (n, n_directions') directions_acc in
-                (distances', directions')
-              else (distance_acc, directions_acc)
-            ) (distances, directions)
+                let directions' =
+                  update (fun (k, v) -> k) (n, n_directions') directions_acc
+                  |> List.map (fun (a, ds) -> (a, take 4 ds))
+                in
+                let queue = PQueue.enqueue (Fun.const alt) n queue in
+                (distances', directions', queue)
+              else (distance_acc, directions_acc, queue)
+            ) (distances, directions, queue')
         in
-        let debug_distances' =
-          distances'
-          |> List.map (fun ((n : Node.t),(s)) -> ((n.coord, n.weight), s))
-          |> List.filter (fun (_, s) -> s <> inf)
-        in
-        let debug_directions' =
-          directions'
-          |> List.map (fun ((n : Node.t),(d)) -> ((n.coord, n.weight), d))
-          |> List.filter (fun (_, d) -> not @@ List.is_empty d )
-        in
-        let () = print_newline () in
-        let () = List.iter (fun (((x,y), w), s) ->
-            let s = if s = inf then (-1) else s in
-            Printf.printf "(%d,%d),%d,%d; " x y w s
-          ) debug_distances' in
-        let () = print_newline () in
-        let () = List.iter (fun (((x,y), w), d) ->
-            let s = d |> List.rev_map (string_of_direction) |> String.concat "" in
-            Printf.printf "(%d,%d),%d,%s; " x y w s
-          ) debug_directions' in
         loop distances' directions' queue'
     in
     loop initial_distances initial_directions queue
 
 end
 
-
 let main_2 lines =
   let nodes = Node.nodes_from_lines lines in
-  let starter_node = List.find (fun (n : Node.t) -> n.coord = (0, 0)) nodes in
-  Dijkstra.shortest_path starter_node nodes
+  let starter_node = nodes |> List.find (fun (n : Node.t) -> n.coord = (0, 0)) in
+  let end_node = nodes |> auto_fold (fun (a:Node.t) (b:Node.t) ->
+      if a.coord > b.coord then a else b
+    )
+  in
+  let (paths, directions) = Dijkstra.shortest_path starter_node nodes in
+  paths |> List.filter (fun ((n : Node.t),_) -> n.coord = end_node.coord)
+  |> List.hd
 ;;
 
 In_channel.input_lines (In_channel.open_text  "day17.example.txt")
 |> main_2
+
 (* let () = *)
 (*   (\* let lines = In_channel.input_lines (In_channel.open_text  "day17.txt") in *\) *)
 (*   let lines = In_channel.input_lines (In_channel.open_text "day17.example.txt") in *)
