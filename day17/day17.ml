@@ -7,10 +7,6 @@ let digits_of_string str =
   |> Seq.map (fun x -> (int_of_char x) - Char.code '0')
   |> List.of_seq
 
-let hd_opt = function
-  | [] -> None
-  | x :: _ -> Some x
-
 let bounded lower upper x =
   let lower, upper = if lower > upper then upper, lower else lower, upper in
   if lower > x
@@ -34,19 +30,6 @@ let update (f : 'a -> 'b) (value : 'a) (list : 'a list) : 'a list =
   if List.exists (fun x -> (f x) = value') list
   then List.map (fun x -> if (f x) = value' then value else x) list
   else list
-
-let upsert (f : 'a -> 'b) (value : 'a) (list : 'a list) : 'a list =
-  if List.exists (fun x -> (f x) = (f value)) list
-  then List.map (fun x -> if (f x) = (f value) then value else x) list
-  else list @ [value]
-
-let manhattan_distance (a_row, a_col) (b_row, b_col) =
-  (abs (b_row - a_row)) + (abs (b_col - a_col))
-
-let mem_proj (proj : 'a -> 'b) (b : 'b) (list : 'a list) : bool =
-  list
-  |> List.to_seq
-  |> Seq.exists (fun a -> (proj a) = b)
 
 type direction = North | East | South | West
 
@@ -89,7 +72,6 @@ module Node = struct
   type t =
     { coord : int * int
     ; weight : int
-    (* ; route_to_node : (t * direction) option *)
     }
 
   let compare a b =
@@ -107,14 +89,10 @@ module Node = struct
         |> List.mapi (fun col d ->
             { coord = (row, col)
             ; weight = d
-              (* ; route_to_node = None *)
             }
           )
       )
     |> List.flatten
-
-  let distance (a : t) (b : t) : int =
-    manhattan_distance (a.coord) (b.coord)
 
   let get_weight (t : t) : int =
     t.weight
@@ -122,24 +100,68 @@ module Node = struct
   let string_of_node (t : t) : string =
     Printf.sprintf "%d(%d,%d)" t.weight (fst t.coord) (snd t.coord)
 
-  (* let rec traverse_path (t : t) () : (t * direction) Seq.node = *)
-  (*   match t.route_to_node with *)
-  (*   | None -> Seq.Nil *)
-  (*   | Some (next, dir) -> Seq.Cons ((next, dir), traverse_path next) *)
-
-  (* let string_of_path (t : t) = *)
-  (*   traverse_path t *)
-  (*   |> Seq.fold_left (fun acc (n, d) -> *)
-  (*       acc ^ (string_of_node n) ^ (string_of_direction d) ^ "; " *)
-  (*     ) "" *)
-
-  (* let directions_of_path (t : t) : direction list = *)
-  (*   traverse_path t *)
-  (*   |> Seq.map (snd) *)
-  (*   |> List.of_seq *)
-
   let eq_coord (a : t) (b : t) : bool =
     a.coord = b.coord
+
+end
+
+module Heap = struct
+  type 'a t = Empty | Node of 'a * 'a t * 'a t * int
+
+  let singleton a = Node (a, Empty, Empty, 1)
+
+  let rank = function
+    | Empty -> 0
+    | Node (_, _, _, r) -> r
+
+  let rec merge t1 t2 =
+    match t1, t2 with
+    | Empty, t | t, Empty -> t
+    | Node (a1, l, r, _), Node (a2, _, _, _) ->
+      if a1 > a2
+      then merge t2 t1
+      else
+        let merged = merge r t2 in
+        let rank_left = rank l and rank_right = rank merged in
+        if rank_left >= rank_right
+        then Node (a1, l, merged, succ rank_right)
+        else Node (a1, merged, l, succ rank_left)
+
+  let insert a t = merge (singleton a) t
+
+  let get_min = function
+    | Empty -> Error "empty"
+    | Node (a, _, _, _) -> Ok a
+
+  let delete_min = function
+    | Empty -> Error "empty"
+    | Node (_, l, r, _) -> Ok (merge l r)
+
+  let of_list = function
+    | [] -> Empty
+    | hd :: tl -> List.fold_left (fun acc x -> insert x acc) (singleton hd) tl
+
+  let uncons (t : 'a t) : ('a option * 'a t) =
+    match t with
+    | Empty -> (None, Empty)
+    | _ ->
+      let min = get_min node in
+      let rest = delete_min node in
+      match min, rest with
+      | Ok a, Ok rest -> (Some a, rest)
+      | Ok a, Error _ -> (Some a, Empty)
+      | _, _ -> (None, Empty)
+
+  let rec to_seq (t : 'a t) () =
+    match t with
+    | Empty -> Seq.Nil
+    | node ->
+      let min = get_min node in
+      let rest = delete_min node in
+      match min, rest with
+      | Ok a, Ok rest -> Seq.Cons (a, to_seq rest)
+      | Ok a, Error _ -> Seq.Cons (a, to_seq Empty)
+      | _, _ -> Seq.Nil
 
 end
 
@@ -213,18 +235,6 @@ let rec exists_n_in_a_row (n : int) (list : 'a list) : bool =
   | _ -> false
 
 module Dijkstra = struct
-
-  let distance (a : Node.t) (b : Node.t) : int =
-    abs (b.weight - a.weight)
-
-  let min_distance (node : Node.t) (nodes_with_distance : (Node.t * int) list) : (Node.t * int) =
-    match nodes_with_distance with
-    | hd :: tl -> List.fold_left (fun acc n ->
-        if (snd acc) < (snd n)
-        then acc
-        else n
-      ) hd tl
-    | [] -> failwith "no nodes?!"
 
   let neighboors_of_node (node : Node.t) (nodes : Node.t list) : ((Node.t * direction) list) =
     let nodes_coords = (nodes |> List.map (fun (n : Node.t) -> n.coord)) in
