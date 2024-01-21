@@ -68,7 +68,7 @@ let neighboors_of_coord (coord : int * int) (board : (int * int) list) : ((int *
   in
   List.fold_right (cons_opt) [n;e;s;w] []
 
-module Node = struct
+module Vertex = struct
   type t =
     { coord : int * int
     ; weight : int
@@ -81,7 +81,7 @@ module Node = struct
     | 0 -> Stdlib.compare a_col b_col
     | a -> a
 
-  let nodes_from_lines (lines : string list) : t list =
+  let vertices_from_lines (lines : string list) : t list =
     lines
     |> List.mapi (fun row s ->
         s
@@ -97,7 +97,7 @@ module Node = struct
   let get_weight (t : t) : int =
     t.weight
 
-  let string_of_node (t : t) : string =
+  let string_of_vertex (t : t) : string =
     Printf.sprintf "%d(%d,%d)" t.weight (fst t.coord) (snd t.coord)
 
   let eq_coord (a : t) (b : t) : bool =
@@ -105,8 +105,14 @@ module Node = struct
 
 end
 
-module Heap = struct
-  type 'a t = Empty | Node of 'a * 'a t * 'a t * int
+module type Comparable = sig
+  type t
+  val compare : t -> t -> int
+end
+
+module Make_Heap (Comp : Comparable) = struct
+  type elt = Comp.t
+  type t = Empty | Node of elt * t * t * int
 
   let singleton a = Node (a, Empty, Empty, 1)
 
@@ -118,7 +124,7 @@ module Heap = struct
     match t1, t2 with
     | Empty, t | t, Empty -> t
     | Node (a1, l, r, _), Node (a2, _, _, _) ->
-      if a1 > a2
+      if Comp.compare a1 a2 = 1
       then merge t2 t1
       else
         let merged = merge r t2 in
@@ -141,18 +147,18 @@ module Heap = struct
     | [] -> Empty
     | hd :: tl -> List.fold_left (fun acc x -> insert x acc) (singleton hd) tl
 
-  let uncons (t : 'a t) : ('a option * 'a t) =
+  let uncons (t : t) : (elt option * t) =
     match t with
     | Empty -> (None, Empty)
     | _ ->
-      let min = get_min node in
-      let rest = delete_min node in
+      let min = get_min t in
+      let rest = delete_min t in
       match min, rest with
       | Ok a, Ok rest -> (Some a, rest)
       | Ok a, Error _ -> (Some a, Empty)
       | _, _ -> (None, Empty)
 
-  let rec to_seq (t : 'a t) () =
+  let rec to_seq (t : t) () =
     match t with
     | Empty -> Seq.Nil
     | node ->
@@ -234,40 +240,47 @@ let rec exists_n_in_a_row (n : int) (list : 'a list) : bool =
     else exists_n_in_a_row n tl
   | _ -> false
 
+module Prioq = Make_Heap(struct
+    type t = Vertex.t * int
+    let compare a b = Stdlib.compare (snd a) (snd b)
+  end)
+
 module Dijkstra = struct
 
-  let neighboors_of_node (node : Node.t) (nodes : Node.t list) : ((Node.t * direction) list) =
-    let nodes_coords = (nodes |> List.map (fun (n : Node.t) -> n.coord)) in
-    let neighboors_coords = neighboors_of_coord node.coord nodes_coords in
-    List.filter_map (fun (n : Node.t) ->
+  let neighboors_of_vertex (vertex : Vertex.t) (vertices : Vertex.t list) : ((Vertex.t * direction) list) =
+    let vertices_coords = (vertices |> List.map (fun (n : Vertex.t) -> n.coord)) in
+    let neighboors_coords = neighboors_of_coord vertex.coord vertices_coords in
+    List.filter_map (fun (n : Vertex.t) ->
         let* dir = List.assoc_opt n.coord neighboors_coords in
         Some (n, dir)
-      ) nodes
+      ) vertices
 
-  let shortest_path (starter_node : Node.t) (nodes : Node.t list) =
+  let shortest_path (starter_vertex : Vertex.t) (vertices : Vertex.t list) =
     let initial_distances = List.map (fun n ->
-        if n = starter_node
+        if n = starter_vertex
         then (n, 0)
         else (n, inf)
-      ) nodes
+      ) vertices
     in
-    let initial_directions = List.map (fun n -> (n, [])) nodes in
-    let queue = PQueue.empty |> PQueue.enqueue (Fun.const 0) starter_node in
+    let initial_directions = List.map (fun n -> (n, [])) vertices in
+    (* let queue = PQueue.empty |> PQueue.enqueue (Fun.const 0) starter_vertex in *)
+    let queue = Prioq.singleton (starter_vertex, 0) in
     let rec loop
-        (distances : (Node.t * int) list)
-        (directions : (Node.t * (direction list)) list)
+        (distances : (Vertex.t * int) list)
+        (directions : (Vertex.t * (direction list)) list)
       =
       function
-      | [] -> (distances, directions)
-      | (queue : Node.t PQueue.t) ->
-        let (cur_opt, (queue' : Node.t PQueue.t)) = PQueue.dequeue queue in
-        let cur = Option.get cur_opt in
-        let neighboors_of_cur = neighboors_of_node cur nodes in
+      | Prioq.Empty -> (distances, directions)
+      | (Prioq.Node _) as queue ->
+        (* let (cur_opt, (queue' : Vertex.t PQueue.t)) = PQueue.dequeue queue in *)
+        let (cur_opt, (queue' : Prioq.t)) = Prioq.uncons queue in
+        let (cur, _) = Option.get cur_opt in
+        let neighboors_of_cur = neighboors_of_vertex cur vertices in
         let (distances', directions', queue') =
           neighboors_of_cur
-          |> List.fold_left (fun (distance_acc, directions_acc, queue) ((n : Node.t), dir) ->
-              let get_distance node =
-                List.assoc_opt node distances
+          |> List.fold_left (fun (distance_acc, directions_acc, queue) ((n : Vertex.t), dir) ->
+              let get_distance vertex =
+                List.assoc_opt vertex distances
                 |> Option.value ~default:(inf)
               in
               let n_directions' =
@@ -275,7 +288,7 @@ module Dijkstra = struct
                 |> function | Some a -> dir :: a | None -> failwith "No directions?!"
               in
               let is_valid_direction =
-                if exists_n_in_a_row 4 n_directions' then false else true
+                if exists_n_in_a_row 3 n_directions' then false else true
               in
               let alt = n.weight + get_distance cur in
               if (alt <= get_distance n) && is_valid_direction
@@ -283,9 +296,10 @@ module Dijkstra = struct
                 let distances' = update (fun (k, v) -> k) (n, alt) distance_acc in
                 let directions' =
                   update (fun (k, v) -> k) (n, n_directions') directions_acc
-                  |> List.map (fun (a, ds) -> (a, take 4 ds))
+                  (* |> List.map (fun (a, ds) -> (a, take 4 ds)) *)
                 in
-                let queue = PQueue.enqueue (Fun.const alt) n queue in
+                (* let queue = PQueue.enqueue (Fun.const alt) n queue in *)
+                let queue = Prioq.insert (n, alt) queue in
                 (distances', directions', queue)
               else (distance_acc, directions_acc, queue)
             ) (distances, directions, queue')
@@ -297,14 +311,14 @@ module Dijkstra = struct
 end
 
 let main_2 lines =
-  let nodes = Node.nodes_from_lines lines in
-  let starter_node = nodes |> List.find (fun (n : Node.t) -> n.coord = (0, 0)) in
-  let end_node = nodes |> auto_fold (fun (a:Node.t) (b:Node.t) ->
+  let vertices = Vertex.vertices_from_lines lines in
+  let starter_vertex = vertices |> List.find (fun (v : Vertex.t) -> v.coord = (0, 0)) in
+  let end_vertex = vertices |> auto_fold (fun (a:Vertex.t) (b:Vertex.t) ->
       if a.coord > b.coord then a else b
     )
   in
-  let (paths, directions) = Dijkstra.shortest_path starter_node nodes in
-  paths |> List.filter (fun ((n : Node.t),_) -> n.coord = end_node.coord)
+  let (paths, directions) = Dijkstra.shortest_path starter_vertex vertices in
+  paths |> List.filter (fun ((n : Vertex.t),_) -> n.coord = end_vertex.coord)
   |> List.hd
 ;;
 
