@@ -66,20 +66,13 @@ let neighboors_of_coord (coord : int * int) (board : (int * int) list) : ((int *
     let* row' = bounded 0 max_row (pred row) in
     Some ((row', col), North)
   in
-  List.fold_right (cons_opt) [n;e;s;w] []
+  List.fold_right (cons_opt) [n;w;s;e] []
 
 module Vertex = struct
   type t =
     { coord : int * int
     ; weight : int
     }
-
-  let compare a b =
-    let (a_row, a_col) = a.coord in
-    let (b_row, b_col) = b.coord in
-    match compare a_row b_row with
-    | 0 -> Stdlib.compare a_col b_col
-    | a -> a
 
   let vertices_from_lines (lines : string list) : t list =
     lines
@@ -108,6 +101,48 @@ end
 module type Comparable = sig
   type t
   val compare : t -> t -> int
+end
+
+
+module Make_Queue (Comp : Comparable) = struct
+  type elt = Comp.t
+  type t = elt list
+
+  let singleton (x : elt) : t = [x]
+
+  (* let insert x t = *)
+  (*   (x :: t) |> List.stable_sort (Comp.compare) *)
+
+  let insert (x : elt) (t : t) =
+    let rec aux acc =
+      function
+      | [] -> List.rev (x :: acc)
+      | hd :: [] -> List.rev (x :: hd :: acc)
+      | hd :: ((b :: _) as tl) ->
+        if ((Comp.compare hd x) <= 0) && ((Comp.compare x b) < 0)
+        then List.rev_append acc (hd :: x :: tl)
+        else aux (hd :: acc) tl
+    in
+    aux [] t
+    |> List.stable_sort (Comp.compare)
+
+  let uncons : t -> (elt option * t) = function
+    | [] -> (None, [])
+    | hd :: tl -> (Some hd, tl)
+
+  let of_list : elt list -> t = function
+    | [] -> []
+    | hd :: tl -> List.fold_left (fun acc x -> insert x acc) (singleton hd) tl
+
+  let rec to_seq (t : t) () =
+    match t with
+    | [] -> Seq.Nil
+    | node ->
+      let (min, rest) = uncons node in
+      match min, rest with
+      | Some a, rest -> Seq.Cons (a, to_seq rest)
+      | _, _ -> Seq.Nil
+
 end
 
 module Make_Heap (Comp : Comparable) = struct
@@ -234,13 +269,14 @@ let take (n : int) (list : 'a list) : 'a list =
 
 let rec exists_n_in_a_row (n : int) (list : 'a list) : bool =
   match list with
-  | hd :: tl when (List.length list) > n ->
+  | hd :: tl when (List.length list) >= n ->
     if List.for_all ((=) hd) (take n list)
     then true
     else exists_n_in_a_row n tl
   | _ -> false
 
-module Prioq = Make_Heap(struct
+module Prioq = Make_Queue(struct
+    (* module Prioq = Make_Heap(struct *)
     type t = Vertex.t * int
     let compare a b = Stdlib.compare (snd a) (snd b)
   end)
@@ -269,10 +305,14 @@ module Dijkstra = struct
         (distances : (Vertex.t * int) list)
         (directions : (Vertex.t * (direction list)) list)
       =
+      (* function *)
+      (* | Prioq.Empty -> (distances, directions) *)
+      (* | (Prioq.Node _) as queue -> *)
       function
-      | Prioq.Empty -> (distances, directions)
-      | (Prioq.Node _) as queue ->
+      | [] -> (distances, directions)
+      | queue ->
         (* let (cur_opt, (queue' : Vertex.t PQueue.t)) = PQueue.dequeue queue in *)
+        (* let (cur_opt, (queue' : Prioq.t)) = Prioq.uncons queue in *)
         let (cur_opt, (queue' : Prioq.t)) = Prioq.uncons queue in
         let (cur, _) = Option.get cur_opt in
         let neighboors_of_cur = neighboors_of_vertex cur vertices in
@@ -288,7 +328,7 @@ module Dijkstra = struct
                 |> function | Some a -> dir :: a | None -> failwith "No directions?!"
               in
               let is_valid_direction =
-                if exists_n_in_a_row 3 n_directions' then false else true
+                if exists_n_in_a_row 4 n_directions' then false else true
               in
               let alt = n.weight + get_distance cur in
               if (alt <= get_distance n) && is_valid_direction
@@ -310,17 +350,20 @@ module Dijkstra = struct
 
 end
 
-let main_2 lines =
+let graph lines =
   let vertices = Vertex.vertices_from_lines lines in
   let starter_vertex = vertices |> List.find (fun (v : Vertex.t) -> v.coord = (0, 0)) in
   let end_vertex = vertices |> auto_fold (fun (a:Vertex.t) (b:Vertex.t) ->
       if a.coord > b.coord then a else b
     )
   in
-  let (paths, directions) = Dijkstra.shortest_path starter_vertex vertices in
-  paths |> List.filter (fun ((n : Vertex.t),_) -> n.coord = end_vertex.coord)
-  |> List.hd
+  Dijkstra.shortest_path starter_vertex vertices
 ;;
+(* let main_2 lines = *)
+(*   let (paths, directions) = graph lines in *)
+(*   paths |> List.filter (fun ((n : Vertex.t),_) -> n.coord = end_vertex.coord) *)
+(*   |> List.hd *)
+(* ;; *)
 
 In_channel.input_lines (In_channel.open_text  "day17.example.txt")
 |> main_2
